@@ -1,0 +1,19 @@
+export interface Input {
+  queryFn: (context: { pageParam: number }) => Promise<{ items: string[]; nextCursor: number | undefined }>;
+}
+
+<infinite-query/result options=() => ({
+  queryKey: ["infinite-items"],
+  queryFn: input.queryFn,
+  initialPageParam: 0,
+  getNextPageParam: (lastPage) => lastPage.nextCursor,
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="data">${JSON.stringify(result.data)}</div>
+<div data-testid="isPending">${String(result.isPending)}</div>
+<div data-testid="hasNextPage">${String(result.hasNextPage)}</div>
+<div data-testid="isFetchingNextPage">${String(result.isFetchingNextPage)}</div>
+<if=result.fetchNextPage>
+  <button data-testid="fetchNext" onClick() { result.fetchNextPage() }>Load More</button>
+</if>

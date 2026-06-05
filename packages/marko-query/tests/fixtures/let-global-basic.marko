@@ -1,0 +1,8 @@
+export interface Input {
+  initialValue?: string;
+}
+
+<let-global/value from="__test_key"/>
+
+<div data-testid="value">${value ?? "empty"}</div>
+<button data-testid="write" onClick() { value = "updated" }>Write</button>

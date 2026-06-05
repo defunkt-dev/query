@@ -1,0 +1,26 @@
+export interface Input {
+  fetchTodos: () => Promise<string[]>;
+  addTodo: (variables: { title: string }) => Promise<{ title: string }>;
+}
+
+<query-client-provider>
+  <let-global/qc from="__tanstack_queryClient"/>
+
+  <query/todos options=() => ({
+    queryKey: ["todos"],
+    queryFn: input.fetchTodos,
+  })/>
+
+  <mutation/addTodo options=() => ({
+    mutationFn: input.addTodo,
+    onSuccess() {
+      qc?.invalidateQueries({ queryKey: ["todos"] });
+    },
+  })/>
+
+  <div data-testid="queryStatus">${todos.status}</div>
+  <div data-testid="queryData">${JSON.stringify(todos.data)}</div>
+  <div data-testid="mutationStatus">${addTodo.status}</div>
+  <div data-testid="mutationData">${JSON.stringify(addTodo.data)}</div>
+  <button data-testid="addBtn" onClick() { addTodo.mutate?.({ title: "new" }) }>Add</button>
+</query-client-provider>

@@ -1,0 +1,20 @@
+export interface Input {
+  fetchUser: () => Promise<{ id: number; name: string }>;
+  fetchProjects: (userId: number) => Promise<string[]>;
+}
+
+<query/user options=() => ({
+  queryKey: ["user"],
+  queryFn: input.fetchUser,
+})/>
+
+<query/projects options=() => ({
+  queryKey: ["projects", user.data?.id],
+  queryFn: () => input.fetchProjects(user.data.id),
+  enabled: !!user.data?.id,
+})/>
+
+<div data-testid="userStatus">${user.status}</div>
+<div data-testid="userData">${JSON.stringify(user.data)}</div>
+<div data-testid="projectsStatus">${projects.status}</div>
+<div data-testid="projectsData">${JSON.stringify(projects.data)}</div>

@@ -1,0 +1,34 @@
+export interface Input {
+  defaultOptions?: {
+    queries?: { staleTime?: number; gcTime?: number; retry?: number | boolean };
+  };
+  content: Marko.Body;
+}
+
+import { QueryClient } from "@tanstack/query-core"
+
+// Create QueryClient during render via IIFE (proven pattern from GOTCHAS doc #1 + dnd-kit session 3).
+// The QueryClient stays on $global (not serialized — not in serializedGlobals).
+// The IIFE returns undefined — only serializable values enter Marko scope.
+<const/_ = (() => {
+  const c = new QueryClient(
+    input.defaultOptions ? { defaultOptions: input.defaultOptions } : undefined
+  );
+  c.mount();
+  ($global ?? {}).__tanstack_queryClient = c;
+})()/>
+
+<let-global/queryClient from="__tanstack_queryClient"/>
+
+<lifecycle
+  onDestroy() {
+    const c = ($global ?? {}).__tanstack_queryClient;
+    if (c) {
+      ($global ?? {}).__tanstack_queryClient = undefined;
+      queryClient = undefined;
+      c.unmount();
+    }
+  }
+/>
+
+<${input.content}/>

@@ -1,0 +1,21 @@
+export interface Input {
+  mutationFn: (variables: unknown) => Promise<unknown>;
+  onSuccess?: (data: unknown) => void;
+  onError?: (error: unknown) => void;
+}
+
+<mutation/result options=() => ({
+  mutationFn: input.mutationFn,
+  onSuccess: input.onSuccess,
+  onError: input.onError,
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="data">${JSON.stringify(result.data)}</div>
+<div data-testid="error">${result.error?.message ?? ""}</div>
+<div data-testid="isPending">${String(result.isPending)}</div>
+<div data-testid="isSuccess">${String(result.isSuccess)}</div>
+<div data-testid="isError">${String(result.isError)}</div>
+<div data-testid="isIdle">${String(result.isIdle)}</div>
+<button data-testid="mutate" onClick() { result.mutate?.({ title: "test" }) }>Mutate</button>
+<button data-testid="reset" onClick() { result.reset?.() }>Reset</button>

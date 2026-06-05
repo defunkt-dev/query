@@ -1,0 +1,30 @@
+export interface Input {
+  queryKey: unknown[];
+  queryFn: () => Promise<unknown>;
+  enabled?: boolean;
+  staleTime?: number;
+  select?: (data: unknown) => unknown;
+  placeholderData?: unknown;
+}
+
+<query/result options=() => ({
+  queryKey: input.queryKey,
+  queryFn: input.queryFn,
+  enabled: input.enabled,
+  staleTime: input.staleTime,
+  select: input.select,
+  placeholderData: input.placeholderData,
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="data">${JSON.stringify(result.data)}</div>
+<div data-testid="error">${result.error?.message ?? ""}</div>
+<div data-testid="isPending">${String(result.isPending)}</div>
+<div data-testid="isSuccess">${String(result.isSuccess)}</div>
+<div data-testid="isError">${String(result.isError)}</div>
+<div data-testid="isFetching">${String(result.isFetching)}</div>
+<div data-testid="isFetched">${String(result.isFetched)}</div>
+<div data-testid="isPlaceholderData">${String(result.isPlaceholderData)}</div>
+<if=result.refetch>
+  <button data-testid="refetch" onClick() { result.refetch() }>Refetch</button>
+</if>

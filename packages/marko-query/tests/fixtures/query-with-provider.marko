@@ -1,0 +1,16 @@
+export interface Input {
+  queryFn: () => Promise<unknown>;
+  defaultStaleTime?: number;
+}
+
+<query-client-provider
+  defaultOptions=(input.defaultStaleTime ? { queries: { staleTime: input.defaultStaleTime } } : undefined)
+>
+  <query/result options=() => ({
+    queryKey: ["provider-test"],
+    queryFn: input.queryFn,
+  })/>
+  <div data-testid="status">${result.status}</div>
+  <div data-testid="data">${JSON.stringify(result.data)}</div>
+  <div data-testid="isPending">${String(result.isPending)}</div>
+</query-client-provider>

@@ -1,0 +1,18 @@
+export interface Input<T extends keyof Marko.Global> {
+  from: T
+}
+
+client const subsMap = new Map();
+
+<let/value=($global ?? {})[input.from]>
+<script>
+  const from = input.from as string;
+  const fn = (next: any) => { value = next };
+  const subs = subsMap.get(from);
+  if (subs) { subs.add(fn); } else { subsMap.set(from, new Set([fn])); }
+  $signal.onabort = () => subsMap.get(from)?.delete(fn);
+</script>
+<return=value valueChange(next) {
+  ($global ?? {})[input.from as string] = next;
+  subsMap.get(input.from as string)?.forEach(sub => sub(next));
+}/>

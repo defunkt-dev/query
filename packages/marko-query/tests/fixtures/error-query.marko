@@ -1,0 +1,16 @@
+export interface Input {
+  queryFn: () => Promise<unknown>;
+  retry?: number | boolean;
+}
+
+<query/result options=() => ({
+  queryKey: ["error-test"],
+  queryFn: input.queryFn,
+  retry: input.retry ?? false,
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="error">${result.error?.message ?? ""}</div>
+<div data-testid="isPending">${String(result.isPending)}</div>
+<div data-testid="isError">${String(result.isError)}</div>
+<div data-testid="failureCount">${String(result.failureCount)}</div>

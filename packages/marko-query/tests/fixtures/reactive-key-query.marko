@@ -1,0 +1,18 @@
+export interface Input {
+  queryFn: (key: unknown[]) => Promise<unknown>;
+  initialStatus: string;
+}
+
+<let/status=input.initialStatus>
+
+<query/result options=() => ({
+  queryKey: ["items", status],
+  queryFn: () => input.queryFn(["items", status]),
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="data">${JSON.stringify(result.data)}</div>
+<div data-testid="queryStatus">${status}</div>
+<button data-testid="toggle" onClick() {
+  status = status === "active" ? "done" : "active";
+}>Toggle</button>

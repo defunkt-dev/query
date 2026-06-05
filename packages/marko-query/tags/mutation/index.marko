@@ -1,0 +1,76 @@
+export interface Input {
+  options: () => import("@tanstack/query-core").MutationObserverOptions;
+}
+
+client import { MutationObserver } from "@tanstack/query-core"
+
+<let-global/queryClient from="__tanstack_queryClient"/>
+
+static const _makeRef = () => ({
+  observer: null as any,
+  unsubscribe: null as (() => void) | null,
+  mutate: null as Function | null,
+});
+
+<let/mutationResult = {
+  status: "idle",
+  data: undefined,
+  error: null,
+  variables: undefined,
+  isPending: false,
+  isSuccess: false,
+  isError: false,
+  isIdle: true,
+  failureCount: 0,
+  failureReason: null,
+  submittedAt: 0,
+  mutate: undefined,
+  mutateAsync: undefined,
+  reset: undefined,
+}>
+<let/_ref = _makeRef()>
+
+<script>
+  const ref = _ref;
+  if (queryClient && !ref.observer) {
+    ref.observer = new MutationObserver(queryClient, input.options());
+
+    ref.mutate = (variables: any, mutateOptions: any) => {
+      ref.observer.mutate(variables, mutateOptions).catch(() => {});
+    };
+
+    const current = ref.observer.getCurrentResult();
+    mutationResult = {
+      ...current,
+      mutate: ref.mutate,
+      mutateAsync: current.mutate,
+      reset: ref.observer.reset.bind(ref.observer),
+    };
+
+    ref.unsubscribe = ref.observer.subscribe((result: any) => {
+      mutationResult = {
+        ...result,
+        mutate: ref.mutate,
+        mutateAsync: result.mutate,
+        reset: ref.observer.reset.bind(ref.observer),
+      };
+    });
+  } else if (ref.observer && queryClient) {
+    ref.observer.setOptions(input.options());
+    ref.unsubscribe = ref.observer.subscribe((result: any) => {
+      mutationResult = {
+        ...result,
+        mutate: ref.mutate,
+        mutateAsync: result.mutate,
+        reset: ref.observer.reset.bind(ref.observer),
+      };
+    });
+  }
+
+  $signal.onabort = () => {
+    ref.unsubscribe?.();
+    ref.unsubscribe = null;
+  };
+</script>
+
+<return=mutationResult/>

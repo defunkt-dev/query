@@ -1,0 +1,78 @@
+export interface Input {
+  options: () => import("@tanstack/query-core").InfiniteQueryObserverOptions;
+}
+
+client import { InfiniteQueryObserver } from "@tanstack/query-core"
+
+<let-global/queryClient from="__tanstack_queryClient"/>
+
+static const pendingResult = {
+  status: "pending",
+  fetchStatus: "fetching",
+  data: undefined,
+  error: null,
+  isPending: true,
+  isSuccess: false,
+  isError: false,
+  isFetching: true,
+  isLoading: true,
+  isRefetching: false,
+  isLoadingError: false,
+  isRefetchError: false,
+  isFetched: false,
+  isFetchedAfterMount: false,
+  isPaused: false,
+  isPlaceholderData: false,
+  isStale: true,
+  failureCount: 0,
+  failureReason: null,
+  errorUpdateCount: 0,
+  dataUpdatedAt: 0,
+  errorUpdatedAt: 0,
+  refetch: undefined,
+  isEnabled: true,
+  fetchNextPage: undefined,
+  fetchPreviousPage: undefined,
+  hasNextPage: false,
+  hasPreviousPage: false,
+  isFetchingNextPage: false,
+  isFetchingPreviousPage: false,
+};
+
+static const _makeRef = () => ({
+  observer: null as any,
+  unsubscribe: null as (() => void) | null,
+  client: null as any,
+});
+
+<let/queryResult = pendingResult>
+<let/_ref = _makeRef()>
+
+<script>
+  const ref = _ref;
+  if (queryClient && !ref.observer) {
+    ref.client = queryClient;
+    const opts = queryClient.defaultQueryOptions(input.options());
+    opts._optimisticResults = "optimistic";
+    ref.observer = new InfiniteQueryObserver(queryClient, opts);
+    queryResult = ref.observer.getOptimisticResult(opts);
+    ref.unsubscribe = ref.observer.subscribe((result: any) => {
+      queryResult = result;
+    });
+  } else if (ref.observer && queryClient && queryClient === ref.client) {
+    const opts = queryClient.defaultQueryOptions(input.options());
+    opts._optimisticResults = "optimistic";
+    ref.observer.setOptions(opts);
+    queryResult = ref.observer.getOptimisticResult(opts);
+    ref.unsubscribe = ref.observer.subscribe((result: any) => {
+      queryResult = result;
+    });
+  }
+
+  $signal.onabort = () => {
+    ref.unsubscribe?.();
+    ref.unsubscribe = null;
+  };
+</script>
+
+<return=queryResult/>

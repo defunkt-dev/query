@@ -1,0 +1,16 @@
+export interface Input {
+  mutationFnA: (variables: unknown) => Promise<unknown>;
+  mutationFnB: (variables: unknown) => Promise<unknown>;
+}
+
+<let/useB = false>
+
+<mutation/result options=() => ({
+  mutationFn: useB ? input.mutationFnB : input.mutationFnA,
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="data">${JSON.stringify(result.data)}</div>
+<div data-testid="isIdle">${String(result.isIdle)}</div>
+<button data-testid="mutate" onClick() { result.mutate?.({ title: "test" }) }>Mutate</button>
+<button data-testid="switch" onClick() { useB = true }>Switch</button>
