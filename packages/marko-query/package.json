@@ -39,9 +39,11 @@
     "@tanstack/query-core": "workspace:*"
   },
   "devDependencies": {
+    "@marko/compiler": "^5.39.63",
     "@marko/testing-library": "^6.4.1",
     "@marko/vite": "^6.0.3",
     "@tanstack/query-test-utils": "workspace:*",
+    "jsdom-context-require": "^5.2.8",
     "marko": "^6.0.0"
   },
   "peerDependencies": {
