@@ -4,8 +4,6 @@ export interface Input {
 
 client import { InfiniteQueryObserver } from "@tanstack/query-core"
 
-<let-global/queryClient from="__tanstack_queryClient"/>
-
 static const pendingResult = {
   status: "pending",
   fetchStatus: "fetching",
@@ -48,7 +46,18 @@ static const _makeRef = () => ({
 <let/queryResult = pendingResult>
 <let/_ref = _makeRef()>
 
+// The QueryClient is read straight from $global. The provider creates it in onMount, which
+// runs before any descendant's script (verified), so it is present here; it is stable, so
+// no reactive subscription to it is needed. This script re-runs when input.options changes.
+//
+// NOTE: unlike <query>, this tag does not yet have a read-only server cache-read, so SSR
+// renders pending and the data appears on the client once the observer mounts (a flash on
+// resume). The symmetric infinite cache-read is deferred to Step 2b, where infinite-query
+// resume / no-flash is the thing under test; it would hand-build the paged result (data
+// .pages/.pageParams, hasNextPage/hasPreviousPage) from the cached query state, the same
+// way <query> does, without constructing an InfiniteQueryObserver server-side.
 <script>
+  const queryClient = ($global ?? {}).__tanstack_queryClient;
   const ref = _ref;
   if (queryClient && !ref.observer) {
     ref.client = queryClient;

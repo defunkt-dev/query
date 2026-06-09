@@ -5,28 +5,49 @@ export interface Input {
   content: Marko.Body;
 }
 
-import { QueryClient } from "@tanstack/query-core"
+client import { QueryClient, hydrate } from "@tanstack/query-core"
 
-// Create QueryClient during render via IIFE (proven pattern from GOTCHAS doc #1 + dnd-kit session 3).
-// The QueryClient stays on $global (not serialized — not in serializedGlobals).
-// The IIFE returns undefined — only serializable values enter Marko scope.
-<const/_ = (() => {
-  const c = new QueryClient(
-    input.defaultOptions ? { defaultOptions: input.defaultOptions } : undefined
-  );
-  c.mount();
-  ($global ?? {}).__tanstack_queryClient = c;
-})()/>
-
-<let-global/queryClient from="__tanstack_queryClient"/>
+// The QueryClient is created in the browser only. "client import" strips QueryClient
+// (and hydrate) from the server bundle, and onMount never runs on the server, so the
+// provider neither creates nor serializes a client during SSR -- which is what removes
+// the "Unable to serialize queryClient" crash. The client lives on $global under a
+// non-serialized key (__tanstack_queryClient); consumers read it from $global directly
+// rather than through a let-global, so nothing non-serializable enters Marko scope.
+//
+// _state.owned records whether THIS provider created the client, so onDestroy only tears
+// down a client it owns. It is a mutable holder (mutated, never reassigned) so it does
+// not participate in reactivity -- the same pattern the consumer tags use for _ref.
+<let/_state = { owned: false }>
 
 <lifecycle
+  onMount() {
+    // No-clobber: only create a client if one is not already on $global. A route-handler
+    // prefetch or an enclosing provider may have put one there; whoever created it owns it.
+    let client = ($global ?? {}).__tanstack_queryClient;
+    if (!client) {
+      client = new QueryClient(
+        input.defaultOptions ? { defaultOptions: input.defaultOptions } : undefined,
+      );
+      client.mount();
+      ($global ?? {}).__tanstack_queryClient = client;
+      _state.owned = true;
+    }
+
+    // Hydrate server-dehydrated cache state into the active client if present. Step 4
+    // wires the dehydrated JSON onto $global.__tanstack_dehydrated (a serialized key);
+    // until then this branch is inert. Hydration is independent of ownership -- it loads
+    // cache data into whichever client is active.
+    const dehydrated = ($global ?? {}).__tanstack_dehydrated;
+    if (dehydrated) {
+      hydrate(client, dehydrated);
+    }
+  }
+
   onDestroy() {
-    const c = ($global ?? {}).__tanstack_queryClient;
-    if (c) {
+    if (_state.owned) {
+      const client = ($global ?? {}).__tanstack_queryClient;
       ($global ?? {}).__tanstack_queryClient = undefined;
-      queryClient = undefined;
-      c.unmount();
+      client?.unmount();
     }
   }
 />

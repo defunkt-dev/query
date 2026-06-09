@@ -4,8 +4,6 @@ export interface Input {
 
 client import { MutationObserver } from "@tanstack/query-core"
 
-<let-global/queryClient from="__tanstack_queryClient"/>
-
 static const _makeRef = () => ({
   observer: null as any,
   unsubscribe: null as (() => void) | null,
@@ -30,7 +28,11 @@ static const _makeRef = () => ({
 }>
 <let/_ref = _makeRef()>
 
+// The QueryClient is read straight from $global. The provider creates it in onMount, which
+// runs before any descendant's script (verified). A mutation has no cache to read, so there
+// is no server snapshot: SSR renders the idle state and the observer is created on mount.
 <script>
+  const queryClient = ($global ?? {}).__tanstack_queryClient;
   const ref = _ref;
   if (queryClient && !ref.observer) {
     ref.observer = new MutationObserver(queryClient, input.options());

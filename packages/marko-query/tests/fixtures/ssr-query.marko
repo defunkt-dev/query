@@ -1,0 +1,15 @@
+// SSR fixture for the Tier 1 GREEN tests. queryFn is INLINE on purpose: a function
+// passed as a prop cannot be serialized across resume (a general Marko constraint,
+// unrelated to the QueryClient), so SSR fixtures define it inline the way real code
+// does. The data for server-renders-data comes from a prefetched client on $global
+// via the cache-read, not from this queryFn (which is never called during SSR).
+
+<query-client-provider>
+  <query/result options=() => ({
+    queryKey: ["todos"],
+    queryFn: async () => ["inline-default"],
+  })/>
+  <div data-testid="status">${result.status}</div>
+  <div data-testid="data">${JSON.stringify(result.data)}</div>
+  <div data-testid="isPending">${String(result.isPending)}</div>
+</query-client-provider>

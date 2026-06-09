@@ -4,8 +4,6 @@ export interface Input {
 
 client import { QueryObserver } from "@tanstack/query-core"
 
-<let-global/queryClient from="__tanstack_queryClient"/>
-
 static const pendingResult = {
   status: "pending",
   fetchStatus: "fetching",
@@ -39,12 +37,53 @@ static const _makeRef = () => ({
   client: null as any,
 });
 
-<let/queryResult = pendingResult>
+// Read-only server cache-read. A Marko <let> initializer runs once and is then resumed
+// (not re-derived on input changes -- verified), so this seeds queryResult exactly once.
+// On the server -- and on the client only once a client is present on $global -- it reads
+// the current cache state for this key and returns a plain, serializable snapshot, so SSR
+// emits prefetched data instead of pending and resume shows it with no loading flash.
+// QueryObserver is a client import (absent from the server bundle), so this reads cache
+// state through the client's own methods and never constructs an observer or starts a
+// fetch. No client, or no settled cache entry, yields pending. The snapshot is functionless
+// and therefore safe to serialize -- unlike the QueryClient itself, which is read from
+// $global directly rather than placed in Marko scope.
+<let/queryResult = (() => {
+  const client = ($global ?? {}).__tanstack_queryClient;
+  if (!client) return pendingResult;
+  const opts = client.defaultQueryOptions(input.options());
+  const query = client.getQueryCache().get(opts.queryHash);
+  if (!query || query.state.status === "pending") return pendingResult;
+  const s = query.state;
+  const hadData = s.dataUpdatedAt > 0;
+  return {
+    ...pendingResult,
+    status: s.status,
+    fetchStatus: s.fetchStatus,
+    data: s.data,
+    error: s.error,
+    isPending: false,
+    isSuccess: s.status === "success",
+    isError: s.status === "error",
+    isFetching: s.fetchStatus === "fetching",
+    isLoading: false,
+    isRefetching: s.status !== "pending" && s.fetchStatus === "fetching",
+    isLoadingError: s.status === "error" && !hadData,
+    isRefetchError: s.status === "error" && hadData,
+    isFetched: true,
+    failureCount: s.fetchFailureCount,
+    failureReason: s.fetchFailureReason,
+    errorUpdateCount: s.errorUpdateCount,
+    dataUpdatedAt: s.dataUpdatedAt,
+    errorUpdatedAt: s.errorUpdatedAt,
+  };
+})()>
 <let/_ref = _makeRef()>
 
-// queryClient is available at render time (provider sets $global via IIFE before children render).
-// Script runs once with queryClient defined. Re-runs when input.options() changes.
+// The QueryClient is read straight from $global. The provider creates it in onMount, which
+// runs before any descendant's script (verified), so it is present here; it is stable, so
+// no reactive subscription to it is needed. This script re-runs when input.options changes.
 <script>
+  const queryClient = ($global ?? {}).__tanstack_queryClient;
   const ref = _ref;
   if (queryClient && !ref.observer) {
     ref.client = queryClient;

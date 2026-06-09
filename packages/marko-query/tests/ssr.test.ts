@@ -1,61 +1,83 @@
 // @vitest-environment node
 //
-// Tier 1 SSR tests for @tanstack/marko-query.
+// Tier 1 SSR tests: server render to an HTML string. The node environment is
+// deliberate -- vitest then uses its SSR/html transform, so @marko/vite compiles
+// the templates to HTML output and Marko's serializer runs, the exact path the 38
+// jsdom client-mount tests never touch. tests/setup.ts is window-guarded, so it
+// no-ops here; no vitest projects split is needed.
 //
-// These run in the NODE environment on purpose. The package's default vitest
-// environment is jsdom (for the 38 client-mount tests). In node, vitest uses
-// its SSR transform, so @marko/vite compiles the .marko templates to HTML
-// output and template.render() runs Marko's serializer -- the exact path the
-// jsdom client-mount tests never touch.
+// These assert the Step 3 GREEN behavior: a server render no longer crashes
+// serializing the QueryClient, and a query whose data was prefetched into a client
+// on $global renders that data (via the read-only cache-read) rather than pending.
 //
-// No vitest "projects" split is needed: tests/setup.ts is already guarded with
-// "if (typeof window !== undefined)", so it no-ops here. This single per-file
-// directive is enough, and the existing 38 tests are untouched.
+// The fixture (ssr-query.marko) uses an INLINE queryFn on purpose. A function
+// passed as a prop cannot be serialized across resume -- a general Marko constraint,
+// unrelated to the client -- so SSR fixtures define queryFn inline the way real code
+// does. The earlier crash-repro test (which asserted the QueryClient serialization
+// crash) has been retired: the Step 3 refactor removed the code that caused it, so
+// it is no longer reproducible. "renders without a serialization error" below is its
+// honest inverse, run against a clean fixture.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { QueryClient, dehydrate, hydrate } from "@tanstack/query-core";
 
-import QueryWithProvider from "./fixtures/query-with-provider.marko";
+import SsrQuery from "./fixtures/ssr-query.marko";
 
-// Render a v6 template to an HTML string (mirrors @marko/testing-library's
-// server entry: String(await template.render(input))). If serialization fails
-// during render, the returned promise rejects.
 async function renderToString(
   template: any,
   input: Record<string, unknown>,
 ): Promise<string> {
-  return String(await template.render(input));
+  let out = "";
+  for await (const chunk of template.render(input)) out += String(chunk);
+  return out;
 }
 
-describe("SSR -- current behavior (RED, pre-refactor)", () => {
-  // The provider creates the QueryClient during render (plain import, so it
-  // runs on the server) and the <query> consumer reads it through <let-global>,
-  // which holds it in a <let>. Marko sees the browser code reading that <let>
-  // and tries to serialize the QueryClient on the server, which it cannot. In
-  // dev/test mode @marko/vite sets MARKO_DEBUG=true, so the serializer throws
-  // "Unable to serialize ...".
-  //
-  // This is the in-repo reproduction of the crash the standalone sandbox could
-  // only approximate. After the Step 3 refactor (consumers read $global
-  // directly; provider creates the client in onMount), this expectation flips
-  // to a successful render -- see the GREEN todos at the bottom.
-  it("crashes serializing the QueryClient on server render", async () => {
-    await expect(
-      renderToString(QueryWithProvider, {
-        // queryFn is required by the fixture but is never called on the server
-        // (the consumer's subscribe is browser-only); the crash happens at
-        // serialization regardless of its value.
-        queryFn: async () => ["a", "b"],
-      }),
-    ).rejects.toThrow(/Unable to serialize/i);
+// Extract the text of a [data-testid=ID] cell from the rendered HTML. Marko emits
+// unquoted attributes for simple values and a trailing resume comment after the
+// text, so this matches either quoting and stops at the first "<" (the comment).
+function cell(html: string, id: string): string | null {
+  const m = html.match(new RegExp(`data-testid=["']?${id}["']?>([^<]*)`));
+  return m ? m[1] : null;
+}
+
+describe("SSR server render (GREEN, post Step 3)", () => {
+  it("renders without a serialization error when no client is present", async () => {
+    // The refactored provider/consumers put nothing non-serializable in scope and
+    // the fixture's queryFn is inline, so the render resolves rather than rejecting.
+    await expect(renderToString(SsrQuery, {})).resolves.toBeTypeOf("string");
+
+    // With no client on $global the cache-read yields pending.
+    const html = await renderToString(SsrQuery, {});
+    expect(cell(html, "status")).toBe("pending");
+    expect(cell(html, "isPending")).toBe("true");
+  });
+
+  it("renders prefetched data from a client on $global, not pending", async () => {
+    const client = new QueryClient();
+    client.mount();
+    await client.prefetchQuery({
+      queryKey: ["todos"],
+      queryFn: async () => ["a", "b"],
+    });
+
+    // The route handler's job (Step 4) done inline here: a prefetched client placed
+    // on the non-serialized $global key the cache-read reads.
+    const html = await renderToString(SsrQuery, {
+      $global: { __tanstack_queryClient: client },
+    });
+
+    expect(cell(html, "status")).toBe("success");
+    expect(cell(html, "data")).toBe(JSON.stringify(["a", "b"]));
+    expect(cell(html, "isPending")).toBe("false");
+
+    client.unmount();
   });
 });
 
 describe("dehydrate / hydrate round-trip (query-core baseline)", () => {
-  // Pure query-core: no Marko render involved. This is the data channel the
-  // SSR flow relies on, and it also exercises the 5.101 hydration behavior
-  // (pending-with-data promoted to success). It should pass independently of
-  // the adapter refactor.
+  // Pure query-core, no Marko render. This is the data channel the SSR flow relies
+  // on and it exercises the 5.101 hydration behavior; it should pass independently
+  // of the adapter.
   let server: QueryClient | undefined;
   let client: QueryClient | undefined;
 
@@ -75,9 +97,6 @@ describe("dehydrate / hydrate round-trip (query-core baseline)", () => {
       queryFn: async () => ["t1", "t2"],
     });
 
-    // dehydrate -> plain JSON over the wire -> hydrate, exactly what a server
-    // entry will do (dehydrated state onto a whitelisted $global key, then the
-    // provider calls hydrate on the client).
     const dehydrated = dehydrate(server);
     const wire = JSON.parse(JSON.stringify(dehydrated));
 
@@ -90,16 +109,3 @@ describe("dehydrate / hydrate round-trip (query-core baseline)", () => {
     expect(state?.data).toEqual(["t1", "t2"]);
   });
 });
-
-// Filled in once the Step 3 refactor lands (provider creates the client in
-// onMount; consumers read $global directly; <query> gains the read-only server
-// cache-read). Kept as todos so this file documents the GREEN target:
-//
-//   it.todo: server render of provider+query with a prefetched client on
-//     $global shows the data, not "pending".
-//   it.todo: a prefetched client on $global is NOT clobbered by the provider
-//     (server render still shows the data).
-//   it.todo: SSR render completes WITHOUT a serialization error -- the inverse
-//     of the RED test above, guarding against the let-global-holds-client bug
-//     returning.
-describe.todo("SSR -- after refactor (GREEN)");
