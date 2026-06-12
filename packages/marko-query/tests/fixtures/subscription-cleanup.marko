@@ -1,0 +1,11 @@
+<let/k = 1>
+<query-client-provider>
+  <query/result options=() => ({
+    queryKey: ["item", k],
+    queryFn: async () => "v" + k,
+    staleTime: Infinity,
+  })/>
+  <div data-testid="status">${result.status}</div>
+  <div data-testid="key">${k}</div>
+  <button data-testid="bump" onClick() { k++ }>bump</button>
+</query-client-provider>
