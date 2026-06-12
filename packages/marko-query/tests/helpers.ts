@@ -1,4 +1,4 @@
-import { QueryClient } from "@tanstack/query-core";
+import { QueryClient, dehydrate } from "@tanstack/query-core";
 
 /**
  * Creates a mounted QueryClient for testing.
@@ -46,4 +46,16 @@ export function flushMicrotasks(): Promise<void> {
 let keyCounter = 0;
 export function uniqueKey(): string[] {
   return [`test-key-${++keyCounter}`];
+}
+
+/**
+ * Mimics a route handler: a throwaway client prefetches the page's queries, then
+ * dehydrate produces plain JSON. Returns both the client (for the server cache-read)
+ * and the dehydrated JSON.
+ */
+export async function makeDehydrated(data: unknown) {
+  const client = new QueryClient();
+  client.mount();
+  await client.prefetchQuery({ queryKey: ["todos"], queryFn: async () => data });
+  return { client, dehydrated: dehydrate(client) };
 }

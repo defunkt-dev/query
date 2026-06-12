@@ -17,11 +17,18 @@
 // crash) has been retired: the Step 3 refactor removed the code that caused it, so
 // it is no longer reproducible. "renders without a serialization error" below is its
 // honest inverse, run against a clean fixture.
+//
+// The Step 4 block asserts the dehydrate flow on top of that: a route handler's
+// prefetched client renders data via the cache-read, and serializedGlobals is what
+// ships the dehydrated cache into the HTML so it crosses resume (with a control that
+// omits it). It uses a second fixture (ssr-dehydrate.marko) and a small local
+// makeDehydrated helper so the file stays self-contained.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { QueryClient, dehydrate, hydrate } from "@tanstack/query-core";
 
 import SsrQuery from "./fixtures/ssr-query.marko";
+import SsrDehydrate from "./fixtures/ssr-dehydrate.marko";
 
 async function renderToString(
   template: any,
@@ -38,6 +45,15 @@ async function renderToString(
 function cell(html: string, id: string): string | null {
   const m = html.match(new RegExp(`data-testid=["']?${id}["']?>([^<]*)`));
   return m ? m[1] : null;
+}
+
+// Prefetch queryKey ["todos"] into a fresh client and dehydrate it -- the data a route
+// handler would compute on the server. Local so this file needs no helpers import.
+async function makeDehydrated(data: unknown) {
+  const c = new QueryClient();
+  c.mount();
+  await c.prefetchQuery({ queryKey: ["todos"], queryFn: async () => data });
+  return { client: c, dehydrated: dehydrate(c) };
 }
 
 describe("SSR server render (GREEN, post Step 3)", () => {
@@ -71,6 +87,40 @@ describe("SSR server render (GREEN, post Step 3)", () => {
     expect(cell(html, "isPending")).toBe("false");
 
     client.unmount();
+  });
+});
+
+describe("Step 4 — dehydrate flow (SSR)", () => {
+  it("route handler: server renders prefetched data via the cache-read", async () => {
+    const { client, dehydrated } = await makeDehydrated(["alpha-marker", "beta-marker"]);
+    const html = await renderToString(SsrDehydrate, {
+      $global: {
+        __tanstack_queryClient: client,
+        __tanstack_dehydrated: dehydrated,
+        serializedGlobals: { __tanstack_dehydrated: true },
+      },
+    });
+    expect(cell(html, "status")).toBe("success");
+    expect(html).toContain("alpha-marker");
+    client.unmount();
+  });
+
+  it("serializedGlobals ships the dehydrated cache so it crosses resume", async () => {
+    const { dehydrated } = await makeDehydrated(["alpha-marker"]);
+    // No live client on $global, so the cache-read yields pending; the only way the
+    // data can appear in the HTML is via the serialized global.
+    const withWhitelist = await renderToString(SsrDehydrate, {
+      $global: { __tanstack_dehydrated: dehydrated, serializedGlobals: { __tanstack_dehydrated: true } },
+    });
+    expect(cell(withWhitelist, "status")).toBe("pending");
+    expect(withWhitelist).toContain("alpha-marker");
+
+    // Control: without serializedGlobals the dehydrated data is not serialized, so it
+    // never crosses.
+    const withoutWhitelist = await renderToString(SsrDehydrate, {
+      $global: { __tanstack_dehydrated: dehydrated },
+    });
+    expect(withoutWhitelist).not.toContain("alpha-marker");
   });
 });
 

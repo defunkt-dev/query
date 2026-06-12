@@ -1,0 +1,13 @@
+export interface Input {
+  queryFn: () => Promise<unknown>;
+}
+
+<query-client-provider>
+  <query/result options=() => ({
+    queryKey: ["todos"],
+    queryFn: input.queryFn,
+    staleTime: Infinity,
+  })/>
+  <div data-testid="status">${result.status}</div>
+  <div data-testid="data">${JSON.stringify(result.data ?? null)}</div>
+</query-client-provider>
