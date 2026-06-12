@@ -6,6 +6,7 @@ export interface Input {
 }
 
 client import { QueryClient, hydrate } from "@tanstack/query-core"
+client import { publishClient } from "../qc-bus"
 
 // The QueryClient is created in the browser only. "client import" strips QueryClient
 // (and hydrate) from the server bundle, and onMount never runs on the server, so the
@@ -18,6 +19,7 @@ client import { QueryClient, hydrate } from "@tanstack/query-core"
 // down a client it owns. It is a mutable holder (mutated, never reassigned) so it does
 // not participate in reactivity -- the same pattern the consumer tags use for _ref.
 <let/_state = { owned: false }>
+
 
 <lifecycle
   onMount() {
@@ -41,6 +43,11 @@ client import { QueryClient, hydrate } from "@tanstack/query-core"
     if (dehydrated) {
       hydrate(client, dehydrated);
     }
+
+    // Wake any consumers waiting on the client. On resume they have already subscribed
+    // (their effects run before this one), so this is what gets their observers built; on a
+    // client mount they read $global directly and this is a harmless no-op.
+    publishClient();
   }
 
   onDestroy() {

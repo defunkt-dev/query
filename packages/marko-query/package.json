@@ -42,6 +42,7 @@
     "@marko/compiler": "^5.39.63",
     "@marko/testing-library": "^6.4.1",
     "@marko/vite": "^6.0.3",
+    "@playwright/test": "^1.60.0",
     "@tanstack/query-test-utils": "workspace:*",
     "jsdom-context-require": "^5.2.8",
     "marko": "^6.0.0"

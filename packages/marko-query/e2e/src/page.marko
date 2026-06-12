@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>marko-query resume liveness probe</title>
+</head>
+<body>
+  <!--
+    A resume marker, independent of the query: "no" on the server, set to "yes" by a client
+    onMount. It confirms the page actually resumed (client JS ran) before we interpret the
+    query state -- so a "pending" status can be read as "query inert" rather than "the page
+    never resumed at all".
+  -->
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+
+  <!--
+    Provider + query, the real package tags (resolved via the package root marko.json). No
+    prefetched client is placed on $global, so the server-side cache-read returns pending and
+    the SSR HTML shows status "pending". The inline queryFn resolves after a short delay with
+    "live-data". If the query goes LIVE on resume, its client observer fetches and the DOM
+    flips to success/"live-data". If the query is INERT (the consumer effect ran before the
+    provider effect on resume and no observer was ever created), the status stays "pending".
+  -->
+  <query-client-provider>
+    <query/result options=() => ({
+      queryKey: ["resume-probe"],
+      queryFn: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return "live-data";
+      },
+    })/>
+    <div data-testid="status">${result.status}</div>
+    <div data-testid="data">${result.data ?? ""}</div>
+  </query-client-provider>
+</body>
+</html>

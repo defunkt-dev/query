@@ -3,13 +3,36 @@ export interface Input {
 }
 
 client import { MutationObserver } from "@tanstack/query-core"
+client import { subscribeClientPublish } from "../qc-bus"
 
-static const _makeRef = () => ({
-  observer: null as any,
-  unsubscribe: null as (() => void) | null,
-  mutate: null as Function | null,
-});
+// _ref holds the observer and the stable action handlers. The handlers are attached on the
+// client only, so _ref's server value is a plain object (observer/unsubscribe null, handlers
+// undefined) that serializes cleanly. The handlers read ref.observer lazily at call time and are
+// stable across renders, which is what lets a stale DOM event binding -- produced when this tag
+// mounts during a previous instance's async teardown -- still fire a working mutate.
+static const _makeRef = () => {
+  const ref: {
+    observer: any;
+    unsubscribe: (() => void) | null;
+    mutate: ((v?: any, o?: any) => void) | undefined;
+    mutateAsync: ((v?: any, o?: any) => Promise<unknown>) | undefined;
+    reset: (() => void) | undefined;
+  } = { observer: null, unsubscribe: null, mutate: undefined, mutateAsync: undefined, reset: undefined };
+  if (typeof window !== "undefined") {
+    ref.mutate = (v, o) => { ref.observer?.mutate(v, o).catch(() => {}); };
+    ref.mutateAsync = (v, o) =>
+      ref.observer ? ref.observer.mutate(v, o) : Promise.reject(new Error("mutation not ready"));
+    ref.reset = () => { ref.observer?.reset(); };
+  }
+  return ref;
+};
 
+<let/_ref = _makeRef()>
+<let/_pulse = 0>
+
+// mutationResult is a reactive let (the effect reassigns it so the DOM updates). It reads the
+// handlers off _ref, which are undefined on the server (see _makeRef), so this serializable let
+// holds no functions there; on the client they are the stable _ref handlers.
 <let/mutationResult = {
   status: "idle",
   data: undefined,
@@ -22,50 +45,35 @@ static const _makeRef = () => ({
   failureCount: 0,
   failureReason: null,
   submittedAt: 0,
-  mutate: undefined,
-  mutateAsync: undefined,
-  reset: undefined,
+  mutate: _ref.mutate,
+  mutateAsync: _ref.mutateAsync,
+  reset: _ref.reset,
 }>
-<let/_ref = _makeRef()>
 
-// The QueryClient is read straight from $global. The provider creates it in onMount, which
-// runs before any descendant's script (verified). A mutation has no cache to read, so there
-// is no server snapshot: SSR renders the idle state and the observer is created on mount.
 <script>
-  const queryClient = ($global ?? {}).__tanstack_queryClient;
+  const off = subscribeClientPublish(() => { _pulse++; });
+  $signal.onabort = off;
+</script>
+
+<script>
+  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
   const ref = _ref;
   if (queryClient && !ref.observer) {
     ref.observer = new MutationObserver(queryClient, input.options());
-
-    ref.mutate = (variables: any, mutateOptions: any) => {
-      ref.observer.mutate(variables, mutateOptions).catch(() => {});
-    };
-
-    const current = ref.observer.getCurrentResult();
     mutationResult = {
-      ...current,
+      ...ref.observer.getCurrentResult(),
       mutate: ref.mutate,
-      mutateAsync: current.mutate,
-      reset: ref.observer.reset.bind(ref.observer),
+      mutateAsync: ref.mutateAsync,
+      reset: ref.reset,
     };
-
     ref.unsubscribe = ref.observer.subscribe((result: any) => {
-      mutationResult = {
-        ...result,
-        mutate: ref.mutate,
-        mutateAsync: result.mutate,
-        reset: ref.observer.reset.bind(ref.observer),
-      };
+      mutationResult = { ...result, mutate: ref.mutate, mutateAsync: ref.mutateAsync, reset: ref.reset };
     });
   } else if (ref.observer && queryClient) {
     ref.observer.setOptions(input.options());
+    ref.unsubscribe?.();
     ref.unsubscribe = ref.observer.subscribe((result: any) => {
-      mutationResult = {
-        ...result,
-        mutate: ref.mutate,
-        mutateAsync: result.mutate,
-        reset: ref.observer.reset.bind(ref.observer),
-      };
+      mutationResult = { ...result, mutate: ref.mutate, mutateAsync: ref.mutateAsync, reset: ref.reset };
     });
   }
 

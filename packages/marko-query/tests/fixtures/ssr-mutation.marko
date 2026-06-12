@@ -1,0 +1,8 @@
+<mutation/result options=() => ({
+  mutationFn: async () => ({ ok: true }),
+})/>
+
+<div data-testid="status">${result.status}</div>
+<div data-testid="isIdle">${String(result.isIdle)}</div>
+<button data-testid="mutate" onClick() { result.mutate?.({ title: "test" }) }>Mutate</button>
+<button data-testid="reset" onClick() { result.reset?.() }>Reset</button>
