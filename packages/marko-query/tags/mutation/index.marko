@@ -5,34 +5,28 @@ export interface Input {
 client import { MutationObserver } from "@tanstack/query-core"
 client import { subscribeClientPublish } from "../qc-bus"
 
-// _ref holds the observer and the stable action handlers. The handlers are attached on the
-// client only, so _ref's server value is a plain object (observer/unsubscribe null, handlers
-// undefined) that serializes cleanly. The handlers read ref.observer lazily at call time and are
-// stable across renders, which is what lets a stale DOM event binding -- produced when this tag
-// mounts during a previous instance's async teardown -- still fire a working mutate.
-static const _makeRef = () => {
-  const ref: {
-    observer: any;
-    unsubscribe: (() => void) | null;
-    mutate: ((v?: any, o?: any) => void) | undefined;
-    mutateAsync: ((v?: any, o?: any) => Promise<unknown>) | undefined;
-    reset: (() => void) | undefined;
-  } = { observer: null, unsubscribe: null, mutate: undefined, mutateAsync: undefined, reset: undefined };
-  if (typeof window !== "undefined") {
-    ref.mutate = (v, o) => { ref.observer?.mutate(v, o).catch(() => {}); };
-    ref.mutateAsync = (v, o) =>
-      ref.observer ? ref.observer.mutate(v, o) : Promise.reject(new Error("mutation not ready"));
-    ref.reset = () => { ref.observer?.reset(); };
-  }
-  return ref;
-};
+// _ref holds the observer and the stable action handlers. _makeRef returns a plain object (all
+// fields null/undefined) so it serializes cleanly on the server; the handlers are attached in the
+// client effect below (not here), which is what lets them survive SSR resume -- a Marko let
+// initializer is restored, not re-run, on the client, so anything attached here (server-side, or
+// only on a client mount) would be lost on resume. The handlers live on _ref, read ref.observer
+// lazily at call time, and are set once, so a stale DOM event binding -- produced when this tag
+// mounts during a previous instance's async teardown -- still fires a working mutate.
+static const _makeRef = () => ({
+  observer: null as any,
+  unsubscribe: null as (() => void) | null,
+  mutate: undefined as ((v?: any, o?: any) => void) | undefined,
+  mutateAsync: undefined as ((v?: any, o?: any) => Promise<unknown>) | undefined,
+  reset: undefined as (() => void) | undefined,
+});
 
 <let/_ref = _makeRef()>
 <let/_pulse = 0>
 
 // mutationResult is a reactive let (the effect reassigns it so the DOM updates). It reads the
-// handlers off _ref, which are undefined on the server (see _makeRef), so this serializable let
-// holds no functions there; on the client they are the stable _ref handlers.
+// handlers off _ref, which are undefined until the client effect attaches them, so this initial
+// value holds no functions -- keeping it serializable on the server. After the effect runs (on a
+// client mount or on resume) mutationResult is reassigned with the attached _ref handlers.
 <let/mutationResult = {
   status: "idle",
   data: undefined,
@@ -56,8 +50,16 @@ static const _makeRef = () => {
 </script>
 
 <script>
-  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
   const ref = _ref;
+  // Attach the action handlers on the client (effects run only on the client, including on
+  // resume). Done here rather than in _makeRef so they survive resume; set once, then stable.
+  if (!ref.mutate) {
+    ref.mutate = (v: any, o: any) => { ref.observer?.mutate(v, o).catch(() => {}); };
+    ref.mutateAsync = (v: any, o: any) =>
+      ref.observer ? ref.observer.mutate(v, o) : Promise.reject(new Error("mutation not ready"));
+    ref.reset = () => { ref.observer?.reset(); };
+  }
+  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
   if (queryClient && !ref.observer) {
     ref.observer = new MutationObserver(queryClient, input.options());
     mutationResult = {

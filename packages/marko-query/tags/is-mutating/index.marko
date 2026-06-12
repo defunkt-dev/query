@@ -1,0 +1,30 @@
+export interface Input {
+  filters?: () => import("@tanstack/query-core").MutationFilters;
+}
+
+client import { subscribeClientPublish } from "../qc-bus"
+
+// The number of mutations currently pending, matching React's useIsMutating. client.isMutating
+// already restricts to status "pending" (it is mutationCache.findAll({ ...filters, status:
+// "pending" }).length), so this is exact parity with no extra filter needed. Same shape as
+// is-fetching: a plain $global read woken by the bus, a count derived from a MutationCache
+// subscription, 0 on the server (no mutations run during a static render).
+<let/count = 0>
+<let/_pulse = 0>
+
+<script>
+  const off = subscribeClientPublish(() => { _pulse++; });
+  $signal.onabort = off;
+</script>
+
+<script>
+  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
+  if (queryClient) {
+    const filters = input.filters?.();
+    const recompute = () => { count = queryClient.isMutating(filters); };
+    recompute();
+    $signal.onabort = queryClient.getMutationCache().subscribe(recompute);
+  }
+</script>
+
+<return=count/>

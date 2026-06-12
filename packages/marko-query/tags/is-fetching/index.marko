@@ -1,0 +1,35 @@
+export interface Input {
+  filters?: () => import("@tanstack/query-core").QueryFilters;
+}
+
+client import { subscribeClientPublish } from "../qc-bus"
+
+// The number of queries currently fetching (initial or background), matching React's
+// useIsFetching -- the value is a count, not a boolean, despite the name. The QueryClient is
+// read from $global (a plain read, woken on resume by the bus, exactly like the query tag); the
+// count is derived from a QueryCache subscription. The initializer is 0 on the server and on the
+// first client pass: a static server render has no in-flight fetches, so there is nothing to
+// hydrate, and the client effect below brings it live. count is only ever written here (never
+// read), so there is no self-referential reactive dependency.
+<let/count = 0>
+<let/_pulse = 0>
+
+// Wake on resume: the provider publishes the client after putting it on $global, which bumps
+// _pulse and re-runs the effect below so it can subscribe. On a client mount the client is
+// already present on the first pass, so the bump is a no-op safety net.
+<script>
+  const off = subscribeClientPublish(() => { _pulse++; });
+  $signal.onabort = off;
+</script>
+
+<script>
+  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
+  if (queryClient) {
+    const filters = input.filters?.();
+    const recompute = () => { count = queryClient.isFetching(filters); };
+    recompute();
+    $signal.onabort = queryClient.getQueryCache().subscribe(recompute);
+  }
+</script>
+
+<return=count/>

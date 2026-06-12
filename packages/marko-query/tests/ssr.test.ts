@@ -28,6 +28,10 @@
 // prefetched infinite client renders the first page server-side. The register-based
 // resume test exercises this path too, but it runs outside vite so istanbul does not
 // count it; this test covers the infinite-query cache-read on the counted path.
+//
+// The aggregate-observers block is an SSR smoke test for is-fetching / is-mutating /
+// mutation-state: with no client and no client-only effects on the server, they render their
+// serializable initial values (0 / 0 / empty) without crashing.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { QueryClient, dehydrate, hydrate } from "@tanstack/query-core";
@@ -36,6 +40,7 @@ import { makeDehydrated } from "./helpers";
 import SsrQuery from "./fixtures/ssr-query.marko";
 import SsrDehydrate from "./fixtures/ssr-dehydrate.marko";
 import SsrInfinite from "./fixtures/ssr-resume-infinite.marko";
+import SsrAggregate from "./fixtures/ssr-aggregate.marko";
 
 async function renderToString(
   template: any,
@@ -182,5 +187,17 @@ describe("dehydrate / hydrate round-trip (query-core baseline)", () => {
     const state = client.getQueryState(["todos"]);
     expect(state?.status).toBe("success");
     expect(state?.data).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("aggregate observers SSR (trivial server value)", () => {
+  it("renders is-fetching, is-mutating, and mutation-state as 0 / 0 / empty without error", async () => {
+    // No client and no client-only effects run on the server, so these come out at their
+    // serializable initial values: 0, 0, and an empty (frozen) array. This is the SSR-safety
+    // check -- the tags must not crash a server render.
+    const html = await renderToString(SsrAggregate, {});
+    expect(cell(html, "fetching")).toBe("0");
+    expect(cell(html, "mutating")).toBe("0");
+    expect(cell(html, "states")).toBe("0");
   });
 });

@@ -1,0 +1,14 @@
+<let/started = false>
+<query-client-provider>
+  <is-fetching/f />
+  <is-mutating/m />
+  <mutation-state/states options=() => ({})/>
+  <query/q options=() => ({ queryKey: ["live"], queryFn: () => new Promise(() => {}), enabled: started })/>
+  <mutation/mut options=() => ({ mutationFn: () => new Promise(() => {}) })/>
+
+  <div data-testid="fetching">${f}</div>
+  <div data-testid="mutating">${m}</div>
+  <div data-testid="mstate">${states.length}</div>
+
+  <button data-testid="go" onClick() { started = true; mut.mutate(); }>go</button>
+</query-client-provider>

@@ -1,0 +1,7 @@
+<query-client-provider>
+  <mutation-state/all options=() => ({})/>
+  <mutation-state/statuses options=() => ({ select: (m) => m.state.status })/>
+  <div data-testid="count">${all.length}</div>
+  <div data-testid="frozen">${String(Object.isFrozen(all))}</div>
+  <div data-testid="selected">${statuses.join(",")}</div>
+</query-client-provider>

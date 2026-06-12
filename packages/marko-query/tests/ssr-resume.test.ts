@@ -42,6 +42,8 @@ const fixtures = join(__dirname, "fixtures");
 const counterPath = join(fixtures, "ssr-counter.marko");
 const queryPath = join(fixtures, "ssr-resume-query.marko");
 const infinitePath = join(fixtures, "ssr-resume-infinite.marko");
+const mutationPath = join(fixtures, "ssr-resume-mutation.marko");
+const aggregatePath = join(fixtures, "ssr-resume-aggregate.marko");
 
 const baseConfig = { babelConfig: { babelrc: false, configFile: false }, writeVersionComment: false } as const;
 
@@ -172,4 +174,62 @@ it("2b: an infinite-query resumes live with the hydrated page -- no flash, no re
   await flush();
   expect(pages()).toContain("page-0"); // first page still hydrated
   expect(pages()).toContain("SENTINEL-1"); // the live observer fetched the next page
+});
+
+it("2b: a mutation resumes with a working mutate handler", async () => {
+  // Regression guard for the resume fix. The mutation tag's action handlers live on _ref and are
+  // attached in the client effect (not the _makeRef initializer), so they survive resume; they
+  // used to come back undefined because the initializer is restored, not re-run, on the client.
+  // After resume mut.mutate must be a real function, and calling it must drive the mutation to
+  // pending (the mutationFn never resolves, so it stays there).
+  const chunks = await renderChunks(mutationPath, {});
+  const { document, run } = resumeInBrowser(mutationPath, chunks);
+  await flush();
+  run();
+  await flush();
+
+  const status = () => document.querySelector('[data-testid="status"]')?.textContent;
+  const hasMutate = () => document.querySelector('[data-testid="hasmutate"]')?.textContent;
+
+  expect(hasMutate(), "mut.mutate is a real function after resume").toBe("function");
+  expect(status()).toBe("idle");
+
+  (document.querySelector('[data-testid="go"]') as HTMLButtonElement).click();
+  run();
+  await flush();
+  run();
+  await flush();
+  expect(status(), "the resumed handler drives the mutation to pending").toBe("pending");
+});
+
+it("2b: the aggregate observers (is-fetching, is-mutating, mutation-state) resume live via the bus", async () => {
+  // No dehydrated data: on resume the provider creates the client in onMount and the bus wakes
+  // the consumers (their effects run first, before any client exists, so a one-time read would
+  // miss it). Their server value is 0/empty. After resume we enable a never-resolving query and
+  // fire a never-resolving mutation; each observer can only reflect that new activity if the bus
+  // wake re-ran its effect and it subscribed. If a tag stayed inert, its value would remain 0 --
+  // so "1" is the proof. (The mutation half also depends on the resume fix above.)
+  const chunks = await renderChunks(aggregatePath, {});
+  const { document, run } = resumeInBrowser(aggregatePath, chunks);
+  await flush();
+  run();
+  await flush();
+
+  const fetching = () => document.querySelector('[data-testid="fetching"]')?.textContent;
+  const mutating = () => document.querySelector('[data-testid="mutating"]')?.textContent;
+  const mstate = () => document.querySelector('[data-testid="mstate"]')?.textContent;
+
+  expect(fetching()).toBe("0"); // resumed; nothing fetching yet
+  expect(mutating()).toBe("0");
+  expect(mstate()).toBe("0");
+
+  (document.querySelector('[data-testid="go"]') as HTMLButtonElement).click();
+  run();
+  await flush();
+  run();
+  await flush();
+
+  expect(fetching(), "is-fetching is live: it saw the new fetch").toBe("1");
+  expect(mutating(), "is-mutating is live: it saw the pending mutation").toBe("1");
+  expect(mstate(), "mutation-state is live: it lists the pending mutation").toBe("1");
 });

@@ -1,0 +1,6 @@
+<query-client-provider>
+  <mutation/mut options=() => ({ mutationFn: () => new Promise(() => {}) })/>
+  <div data-testid="status">${mut.status}</div>
+  <div data-testid="hasmutate">${String(typeof mut.mutate)}</div>
+  <button data-testid="go" onClick() { mut.mutate(); }>go</button>
+</query-client-provider>

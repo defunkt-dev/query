@@ -1,0 +1,47 @@
+export interface Input {
+  options?: () => {
+    filters?: import("@tanstack/query-core").MutationFilters;
+    select?: (mutation: import("@tanstack/query-core").Mutation) => unknown;
+  };
+}
+
+client import { replaceEqualDeep } from "@tanstack/query-core"
+client import { subscribeClientPublish } from "../qc-bus"
+
+// The mutations in the MutationCache, filtered and optionally mapped through select -- matching
+// React and Vue useMutationState. The default (no select) returns each mutation's live state
+// object by reference, exactly as the other adapters do (neither clones nor deep-freezes it,
+// since it is the cache's live state); select is the intended way to derive specific values.
+// The returned array is shallow-frozen: the array is ours, freshly built each event, so freezing
+// it is safe and blocks accidental push/reassign -- mirroring Vue's shallowReadonly guard -- but
+// the inner state objects are not frozen. replaceEqualDeep keeps the array referentially stable
+// across events, as React does; prev is a plain local (not the reactive let) so the effect never
+// reads what it writes. The value is an empty array on the server (no mutations during a static
+// render).
+<let/states = (Object.freeze([]) as readonly unknown[])>
+<let/_pulse = 0>
+
+<script>
+  const off = subscribeClientPublish(() => { _pulse++; });
+  $signal.onabort = off;
+</script>
+
+<script>
+  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
+  if (queryClient) {
+    const cache = queryClient.getMutationCache();
+    let prev: readonly unknown[] = [];
+    const getResult = () => {
+      const opts = input.options?.() ?? {};
+      const next = cache
+        .findAll(opts.filters)
+        .map((m: any) => (opts.select ? opts.select(m) : m.state));
+      prev = Object.freeze(replaceEqualDeep(prev, next)) as readonly unknown[];
+      return prev;
+    };
+    states = getResult();
+    $signal.onabort = cache.subscribe(() => { states = getResult(); });
+  }
+</script>
+
+<return=states/>
