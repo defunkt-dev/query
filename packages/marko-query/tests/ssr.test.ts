@@ -41,6 +41,7 @@ import SsrQuery from "./fixtures/ssr-query.marko";
 import SsrDehydrate from "./fixtures/ssr-dehydrate.marko";
 import SsrInfinite from "./fixtures/ssr-resume-infinite.marko";
 import SsrAggregate from "./fixtures/ssr-aggregate.marko";
+import QcProbe from "./fixtures/query-client-probe.marko";
 
 async function renderToString(
   template: any,
@@ -199,5 +200,17 @@ describe("aggregate observers SSR (trivial server value)", () => {
     expect(cell(html, "fetching")).toBe("0");
     expect(cell(html, "mutating")).toBe("0");
     expect(cell(html, "states")).toBe("0");
+  });
+});
+
+describe("query-client SSR (no client in scope)", () => {
+  it("renders null on the server and never serializes the client", async () => {
+    // The accessor does not read $global on the server, so even with a client present on $global
+    // the server value is null -- no non-serializable client enters Marko scope, and no crash.
+    const client = new QueryClient();
+    client.mount();
+    const html = await renderToString(QcProbe, { $global: { __tanstack_queryClient: client } });
+    expect(cell(html, "has")).toBe("false");
+    client.unmount();
   });
 });

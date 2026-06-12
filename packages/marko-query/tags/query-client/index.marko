@@ -1,0 +1,27 @@
+client import { subscribeClientPublish } from "../qc-bus"
+
+// Returns the active QueryClient (the one the provider put on $global) for imperative use in your
+// own code -- invalidateQueries, setQueryData, prefetchQuery, clear, and so on. It is the same
+// client the query/mutation tags use internally; this is just the public accessor, so your code
+// need not reach into the $global key directly.
+//
+// The client is read from $global in the client effect only, and the effect is woken on resume by
+// the bus (so the client becomes available once the provider creates it in onMount). The let is
+// null on the server -- it never reads $global there -- so the non-serializable client never
+// enters Marko scope and a server render cannot crash serializing it (even in the route-handler
+// flow, where a client is present on $global during SSR). The returned value is therefore
+// QueryClient on the client and null on the server / before the client exists; consumers should
+// use it from event handlers (which run on the client) and null-check.
+<let/client = (null as import("@tanstack/query-core").QueryClient | null)>
+<let/_pulse = 0>
+
+<script>
+  const off = subscribeClientPublish(() => { _pulse++; });
+  $signal.onabort = off;
+</script>
+
+<script>
+  client = (_pulse, ($global ?? {}).__tanstack_queryClient ?? null);
+</script>
+
+<return=client/>

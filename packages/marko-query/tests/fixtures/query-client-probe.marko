@@ -1,0 +1,7 @@
+<let/result = "">
+<query-client-provider>
+  <query-client/qc />
+  <div data-testid="has">${String(qc != null)}</div>
+  <div data-testid="result">${result}</div>
+  <button data-testid="go" onClick() { qc?.setQueryData(["x"], 7); result = String(qc?.getQueryData(["x"])); }>go</button>
+</query-client-provider>

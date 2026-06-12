@@ -44,6 +44,7 @@ const queryPath = join(fixtures, "ssr-resume-query.marko");
 const infinitePath = join(fixtures, "ssr-resume-infinite.marko");
 const mutationPath = join(fixtures, "ssr-resume-mutation.marko");
 const aggregatePath = join(fixtures, "ssr-resume-aggregate.marko");
+const qcPath = join(fixtures, "query-client-probe.marko");
 
 const baseConfig = { babelConfig: { babelrc: false, configFile: false }, writeVersionComment: false } as const;
 
@@ -232,4 +233,27 @@ it("2b: the aggregate observers (is-fetching, is-mutating, mutation-state) resum
   expect(fetching(), "is-fetching is live: it saw the new fetch").toBe("1");
   expect(mutating(), "is-mutating is live: it saw the pending mutation").toBe("1");
   expect(mstate(), "mutation-state is live: it lists the pending mutation").toBe("1");
+});
+
+it("2b: query-client resumes with the live client for imperative use", async () => {
+  // On resume the provider creates the client and the bus wakes query-client, which then returns
+  // it. Proof that it is the real, working client: a click writes via setQueryData and reads it
+  // back through the same client (result becomes "7"). An inert/null accessor would leave it "".
+  const chunks = await renderChunks(qcPath, {});
+  const { document, run } = resumeInBrowser(qcPath, chunks);
+  await flush();
+  run();
+  await flush();
+
+  const has = () => document.querySelector('[data-testid="has"]')?.textContent;
+  const result = () => document.querySelector('[data-testid="result"]')?.textContent;
+
+  expect(has(), "the bus wake delivered the resumed client").toBe("true");
+
+  (document.querySelector('[data-testid="go"]') as HTMLButtonElement).click();
+  run();
+  await flush();
+  run();
+  await flush();
+  expect(result(), "the resumed client is functional: setQueryData/getQueryData round-trips").toBe("7");
 });
