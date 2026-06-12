@@ -6,36 +6,15 @@ client import { InfiniteQueryObserver } from "@tanstack/query-core"
 client import { subscribeClientPublish } from "../qc-bus"
 
 static const pendingResult = {
-  status: "pending",
-  fetchStatus: "fetching",
-  data: undefined,
-  error: null,
-  isPending: true,
-  isSuccess: false,
-  isError: false,
-  isFetching: true,
-  isLoading: true,
-  isRefetching: false,
-  isLoadingError: false,
-  isRefetchError: false,
-  isFetched: false,
-  isFetchedAfterMount: false,
-  isPaused: false,
-  isPlaceholderData: false,
-  isStale: true,
-  failureCount: 0,
-  failureReason: null,
-  errorUpdateCount: 0,
-  dataUpdatedAt: 0,
-  errorUpdatedAt: 0,
-  refetch: undefined,
-  isEnabled: true,
-  fetchNextPage: undefined,
-  fetchPreviousPage: undefined,
-  hasNextPage: false,
-  hasPreviousPage: false,
-  isFetchingNextPage: false,
-  isFetchingPreviousPage: false,
+  status: "pending", fetchStatus: "fetching", data: undefined, error: null,
+  isPending: true, isSuccess: false, isError: false, isFetching: true, isLoading: true,
+  isRefetching: false, isLoadingError: false, isRefetchError: false, isFetched: false,
+  isFetchedAfterMount: false, isPaused: false, isPlaceholderData: false, isStale: true,
+  failureCount: 0, failureReason: null, errorUpdateCount: 0, dataUpdatedAt: 0, errorUpdatedAt: 0,
+  refetch: undefined, isEnabled: true,
+  fetchNextPage: undefined, fetchPreviousPage: undefined,
+  hasNextPage: false, hasPreviousPage: false,
+  isFetchingNextPage: false, isFetchingPreviousPage: false,
 };
 
 static const _makeRef = () => ({
@@ -44,25 +23,59 @@ static const _makeRef = () => ({
   client: null as any,
 });
 
-<let/queryResult = pendingResult>
+// Read-only server cache-read (parity with the query tag). Seeds queryResult once from the
+// cached infinite-query state so SSR emits the prefetched pages and resume shows them with no
+// loading flash. hasNextPage/hasPreviousPage are derived from the cached pages via the user's
+// getNextPageParam/getPreviousPageParam; the live observer recomputes them precisely on the
+// client. InfiniteQueryObserver is a client import (absent from the server bundle), so this
+// never constructs an observer or starts a fetch.
+<let/queryResult = (() => {
+  const client = ($global ?? {}).__tanstack_queryClient;
+  if (!client) return pendingResult;
+  const io = input.options();
+  const opts = client.defaultQueryOptions(io);
+  const query = client.getQueryCache().get(opts.queryHash);
+  if (!query || query.state.status === "pending") return pendingResult;
+  const s = query.state;
+  const hadData = s.dataUpdatedAt > 0;
+  const data: any = s.data;
+  let hasNextPage = false;
+  let hasPreviousPage = false;
+  if (data && Array.isArray(data.pages) && data.pages.length) {
+    const pages = data.pages;
+    const params = data.pageParams;
+    const last = pages.length - 1;
+    if (io.getNextPageParam) {
+      const np = io.getNextPageParam(pages[last], pages, params[last], params);
+      hasNextPage = np != null;
+    }
+    if (io.getPreviousPageParam) {
+      const pp = io.getPreviousPageParam(pages[0], pages, params[0], params);
+      hasPreviousPage = pp != null;
+    }
+  }
+  return {
+    ...pendingResult,
+    status: s.status, fetchStatus: s.fetchStatus, data: s.data, error: s.error,
+    isPending: false, isSuccess: s.status === "success", isError: s.status === "error",
+    isFetching: s.fetchStatus === "fetching", isLoading: false,
+    isRefetching: s.status !== "pending" && s.fetchStatus === "fetching",
+    isLoadingError: s.status === "error" && !hadData,
+    isRefetchError: s.status === "error" && hadData,
+    isFetched: true, failureCount: s.fetchFailureCount, failureReason: s.fetchFailureReason,
+    errorUpdateCount: s.errorUpdateCount, dataUpdatedAt: s.dataUpdatedAt, errorUpdatedAt: s.errorUpdatedAt,
+    hasNextPage, hasPreviousPage,
+  };
+})()>
 <let/_ref = _makeRef()>
 
 <let/_pulse = 0>
 
-// Wake this consumer when the provider publishes the client. On resume the consumer effects
-// run before the provider's, so without this the observer would never see a client; the
-// provider's onMount calls publishClient() after putting the client on $global, which bumps
-// _pulse and re-runs the observer script below. On a client mount the client is already on
-// $global on the first pass, so the bump is just a no-op safety net.
 <script>
   const off = subscribeClientPublish(() => { _pulse++; });
   $signal.onabort = off;
 </script>
 
-// The QueryClient is read straight from $global. The provider creates it in onMount, which
-// runs before any descendant's script (verified), so it is present here; it is stable, so
-// no reactive subscription to it is needed. This script re-runs when input.options changes.
-//
 <script>
   const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
   const ref = _ref;
@@ -72,23 +85,16 @@ static const _makeRef = () => ({
     opts._optimisticResults = "optimistic";
     ref.observer = new InfiniteQueryObserver(queryClient, opts);
     queryResult = ref.observer.getOptimisticResult(opts);
-    ref.unsubscribe = ref.observer.subscribe((result: any) => {
-      queryResult = result;
-    });
+    ref.unsubscribe = ref.observer.subscribe((result: any) => { queryResult = result; });
   } else if (ref.observer && queryClient && queryClient === ref.client) {
     const opts = queryClient.defaultQueryOptions(input.options());
     opts._optimisticResults = "optimistic";
     ref.observer.setOptions(opts);
     queryResult = ref.observer.getOptimisticResult(opts);
-    ref.unsubscribe = ref.observer.subscribe((result: any) => {
-      queryResult = result;
-    });
+    ref.unsubscribe = ref.observer.subscribe((result: any) => { queryResult = result; });
   }
 
-  $signal.onabort = () => {
-    ref.unsubscribe?.();
-    ref.unsubscribe = null;
-  };
+  $signal.onabort = () => { ref.unsubscribe?.(); ref.unsubscribe = null; };
 </script>
 
 <return=queryResult/>

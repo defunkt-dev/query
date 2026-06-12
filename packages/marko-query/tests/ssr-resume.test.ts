@@ -1,138 +1,175 @@
 // @vitest-environment node
 //
-// Tier 2a: the SSR -> resume HARNESS MECHANISM, proven with a trivial counter.
+// Tier 2 resume tests: server-render-then-resume via @marko/compiler/register.
 //
-// This deliberately does NOT import the .marko fixture through Vitest. It
-// compiles the fixture itself with @marko/compiler/register -- html for the
-// server side, dom for the client side -- exactly like Marko's own runtime-tags
-// test harness (runtime-tags/src/__tests__/main.test.ts). Compiling both sides
-// with one compiler config (same auto-discovered translator, non-optimized)
-// keeps the server and client registry ids aligned. The server HTML is written
-// into a jsdom-context-require browser and the client is required in to resume.
+// 2a (counter) proves the harness MECHANISM -- compile the fixture html (server) and dom
+// (client) under one register config so the registry ids align, write the server HTML into a
+// jsdom document, mark the entry boundary ready with initEmbedded, and confirm the resumed
+// onClick handler fires.
 //
-// What it proves: the server renders count 0; after resume the onClick handler
-// is attached, so clicking increments to 1. If resume does not wire up, the
-// click is a no-op and the count stays 0.
+// 2b (adapter) runs the same harness against the real provider/query/infinite-query tags with
+// Step 4 dehydrated data on $global. It proves the resume guarantee: a server-rendered query
+// resumes LIVE with no loading flash and no refetch while the hydrated data is fresh, and the
+// same for infinite-query. "Live" is asserted non-vacuously: the cache-read seeds the resumed
+// snapshot, so a success status by itself could be inert -- the tests instead require that the
+// observer actually attached (result.refetch / result.fetchNextPage become functions, so their
+// buttons render) and that clicking those drives a real update through the live subscription.
 //
-// Two non-obvious things were required to make resume actually run; both are
-// documented inline below:
-//   1. the dom runtime import path must be "marko/debug/dom" (not "marko/dom"),
-//      because a non-optimized compile emits the debug runtime path, and the
-//      runtime instance that init() drives must be the same one the compiled
-//      template registered its scripts into.
-//   2. Marko 6.1.x defers a render's resume until the template(s) named in the
-//      render's boundary are marked "ready"; with register (no bundler-generated
-//      client entry) we mark the entry template ready ourselves via
-//      initEmbedded(entryId, runtimeId).
+// Harness notes: (1) the dom runtime import must be "marko/debug/dom" -- a non-optimized
+// compile emits that path and init()/run() must drive the same runtime instance the templates
+// registered into. (2) Marko 6.1.x defers a render's resume until the templates in its boundary
+// (window.M[renderId].b) are marked ready; under register there is no bundler client entry, so
+// we do it ourselves via initEmbedded(entryId, "M"). (3) the dom tags require ../qc-bus (a .ts
+// module) which the register browser-require cannot load, so a typescript -> cjs loader is added
+// for it; a normal @marko/vite build handles this transparently.
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import register from "@marko/compiler/register";
 import { beforeAll, expect, it } from "vitest";
+import { QueryClient, dehydrate } from "@tanstack/query-core";
 
 import createBrowser from "./utils/create-browser";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const counterPath = join(__dirname, "fixtures", "ssr-counter.marko");
+const ts = require("typescript");
 
-const baseConfig = {
-  babelConfig: { babelrc: false, configFile: false },
-  writeVersionComment: false,
-} as const;
+const fixtures = join(__dirname, "fixtures");
+const counterPath = join(fixtures, "ssr-counter.marko");
+const queryPath = join(fixtures, "ssr-resume-query.marko");
+const infinitePath = join(fixtures, "ssr-resume-infinite.marko");
+
+const baseConfig = { babelConfig: { babelrc: false, configFile: false }, writeVersionComment: false } as const;
 
 beforeAll(() => {
-  // Global require hook for the SERVER (html) compile. createRequire above is a
-  // native Node require, so this hook applies to require(counterPath) below.
+  // Global require hook for the SERVER (html) compile.
   register({ ...baseConfig, output: "html", modules: "cjs" });
 });
 
-async function serverRenderChunks(
-  input: Record<string, unknown>,
-): Promise<string[]> {
-  const template = require(counterPath).default;
+// The client (dom) compile, plus a .ts loader so the dom tags' require("../qc-bus") resolves.
+function domExtensions(): Record<string, (m: any, f: string) => void> {
+  const ext: Record<string, (m: any, f: string) => void> = {
+    ...register({ ...baseConfig, output: "dom", modules: "cjs", extensions: {} }),
+  };
+  ext[".ts"] = (module, filename) => {
+    const out = ts.transpileModule(readFileSync(filename, "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+      fileName: filename,
+    }).outputText;
+    module._compile(out, filename);
+  };
+  return ext;
+}
+
+async function renderChunks(path: string, input: Record<string, unknown>): Promise<string[]> {
+  const template = require(path).default;
   const chunks: string[] = [];
-  for await (const chunk of template.render(input)) {
-    chunks.push(chunk as string);
-  }
+  for await (const chunk of template.render(input)) chunks.push(chunk as string);
   return chunks;
 }
 
-const flushScheduler = async () => {
-  // Marko's scheduler here is rAF (polyfilled to setTimeout) then MessageChannel
-  // (setImmediate -> microtask). Drain generously before asserting.
-  await new Promise((r) => setTimeout(r));
-  await new Promise((r) => setImmediate(r));
-  await new Promise((r) => setTimeout(r));
-};
-
-it("resumes a server-rendered counter and attaches its click handler", async () => {
-  const chunks = await serverRenderChunks({});
-
-  const browser = createBrowser({
-    dir: __dirname,
-    // The client (dom) compile. extensions: {} makes register return the
-    // extensions for this browser's require WITHOUT clobbering the global html
-    // hook installed in beforeAll.
-    extensions: register({
-      ...baseConfig,
-      output: "dom",
-      modules: "cjs",
-      extensions: {},
-    }),
-  });
+// Write a server-rendered chunk stream into a fresh jsdom browser and drive Marko's resume.
+function resumeInBrowser(path: string, chunks: string[]) {
+  const browser = createBrowser({ dir: __dirname, extensions: domExtensions() });
   const { window } = browser;
   const { document } = window;
-
-  // The dom runtime. It MUST be "marko/debug/dom": a non-optimized compile emits
-  // `require("marko/debug/dom")` in the template, and the runtime instance that
-  // initEmbedded()/run() drive has to be the same module instance the template
-  // registered its scripts into. ("marko/dom" is a different instance whose
-  // resume registry would be empty, so resume would silently do nothing.)
-  const { run, initEmbedded } = browser.require<{
-    run: () => void;
-    initEmbedded: (readyId: string, runtimeId?: string) => void;
-  }>("marko/debug/dom");
-
-  // Register the template (dom) in the browser context. Its top-level _script()
-  // calls register the event-binding scripts into the runtime's resume registry.
-  browser.require(counterPath);
-
-  // Write the server HTML into the document. The inline bootstrap script runs as
-  // it is parsed, populating window.M (the resume registry) and indexing the
-  // comment markers.
-  const flushNext = browser.stream(chunks);
-  flushNext();
-
-  // Resume. Marko 6.1.x will NOT run a render's resume effects until every
-  // template named in that render's boundary (window.M[renderId].b) has been
-  // marked "ready". In a real build the bundler-generated client entry does this
-  // as each template chunk loads; under @marko/compiler/register there is no such
-  // entry, so we do it ourselves. initEmbedded(entryId, runtimeId) marks the
-  // boundary ready and then calls init(runtimeId). The boundary lists only the
-  // ENTRY template (the one passed to render()); marking it ready resumes the
-  // whole tree, including any imported child components. runtimeId is "M"
-  // (Marko's default) since the server render did not set a custom one.
+  const rt = browser.require<{ run: () => void; initEmbedded: (r: string, id?: string) => void }>("marko/debug/dom");
+  browser.require(path); // register the dom template's resume scripts into the runtime
+  browser.stream(chunks)(); // write the server HTML; the inline bootstrap populates window.M
   const M = (window as unknown as { M: Record<string, { b: Record<string, 1> }> }).M;
   const renderId = Object.keys(M)[0];
-  const entryId = Object.keys(M[renderId].b)[0];
-  initEmbedded(entryId, "M");
+  rt.initEmbedded(Object.keys(M[renderId].b)[0], "M"); // mark entry boundary ready -> resume
+  return { window, document, run: rt.run };
+}
 
-  const count = () =>
-    document.querySelector('[data-testid="count"]')?.textContent;
+const flush = async () => {
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r));
+    await new Promise((r) => setImmediate(r));
+  }
+};
 
-  // Resumed from the server render: count is 0, not re-rendered from scratch.
-  expect(count()).toBe("0");
+it("2a: resumes a server-rendered counter and attaches its click handler", async () => {
+  const chunks = await renderChunks(counterPath, {});
+  const { document, run } = resumeInBrowser(counterPath, chunks);
 
-  // The proof: clicking works, which means resume attached the onClick handler.
-  const button = document.querySelector(
-    '[data-testid="increment"]',
-  ) as HTMLButtonElement;
-  button.click();
+  const count = () => document.querySelector('[data-testid="count"]')?.textContent;
+  expect(count()).toBe("0"); // resumed from the server render, not re-rendered from scratch
+
+  (document.querySelector('[data-testid="increment"]') as HTMLButtonElement).click();
   run();
-  await flushScheduler();
+  await flush();
+  expect(count()).toBe("1"); // the proof: resume attached the onClick handler
+});
 
-  expect(count()).toBe("1");
+it("2b: a query resumes live with hydrated data -- no flash, no refetch when fresh", async () => {
+  const server = new QueryClient();
+  server.mount();
+  await server.prefetchQuery({ queryKey: ["todos"], queryFn: async () => ["alpha-marker", "beta-marker"] });
+  const dehydrated = dehydrate(server);
+  const chunks = await renderChunks(queryPath, {
+    $global: { __tanstack_queryClient: server, __tanstack_dehydrated: dehydrated, serializedGlobals: { __tanstack_dehydrated: true } },
+  });
+  server.unmount();
+
+  const { document, run } = resumeInBrowser(queryPath, chunks);
+  await flush();
+  run();
+  await flush();
+
+  const status = () => document.querySelector('[data-testid="status"]')?.textContent;
+  const data = () => document.querySelector('[data-testid="data"]')?.textContent;
+  const refetchBtn = () => document.querySelector('[data-testid="refetch"]') as HTMLButtonElement | null;
+
+  expect(status()).toBe("success"); // seeded by the cache-read and kept by the live observer: no flash
+  expect(data()).toContain("alpha-marker"); // the hydrated cache
+  expect(data()).not.toContain("REFETCH-SENTINEL"); // fresh under staleTime: no refetch
+  expect(refetchBtn(), "refetch button proves a live observer, not the inert snapshot").not.toBeNull();
+
+  refetchBtn()!.click();
+  run();
+  await flush();
+  expect(data()).toContain("REFETCH-SENTINEL"); // an explicit refetch flows through the live subscription
+});
+
+it("2b: an infinite-query resumes live with the hydrated page -- no flash, no refetch when fresh", async () => {
+  const server = new QueryClient();
+  server.mount();
+  await server.prefetchInfiniteQuery({
+    queryKey: ["pages"],
+    queryFn: async ({ pageParam }: { pageParam: number }) => ["page-" + pageParam],
+    initialPageParam: 0,
+    getNextPageParam: (_last: unknown, all: unknown[]) => all.length,
+  });
+  const dehydrated = dehydrate(server);
+  const chunks = await renderChunks(infinitePath, {
+    $global: { __tanstack_queryClient: server, __tanstack_dehydrated: dehydrated, serializedGlobals: { __tanstack_dehydrated: true } },
+  });
+  server.unmount();
+
+  const { document, run } = resumeInBrowser(infinitePath, chunks);
+  await flush();
+  run();
+  await flush();
+
+  const status = () => document.querySelector('[data-testid="status"]')?.textContent;
+  const pages = () => document.querySelector('[data-testid="pages"]')?.textContent;
+  const hasNext = () => document.querySelector('[data-testid="hasNext"]')?.textContent;
+  const nextBtn = () => document.querySelector('[data-testid="next"]') as HTMLButtonElement | null;
+
+  expect(status()).toBe("success"); // the infinite cache-read seeds success: no flash
+  expect(pages()).toContain("page-0"); // the hydrated first page
+  expect(hasNext()).toBe("true");
+  expect(pages()).not.toContain("SENTINEL"); // fresh under staleTime: no refetch
+  expect(nextBtn(), "fetchNextPage button proves a live observer").not.toBeNull();
+
+  nextBtn()!.click();
+  run();
+  await flush();
+  expect(pages()).toContain("page-0"); // first page still hydrated
+  expect(pages()).toContain("SENTINEL-1"); // the live observer fetched the next page
 });

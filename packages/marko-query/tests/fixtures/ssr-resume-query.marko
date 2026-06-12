@@ -1,0 +1,12 @@
+<query-client-provider>
+  <query/result options=() => ({
+    queryKey: ["todos"],
+    queryFn: async () => ["REFETCH-SENTINEL"],
+    staleTime: Infinity,
+  })/>
+  <div data-testid="status">${result.status}</div>
+  <div data-testid="data">${JSON.stringify(result.data ?? null)}</div>
+  <if=result.refetch>
+    <button data-testid="refetch" onClick() { result.refetch() }>refetch</button>
+  </if>
+</query-client-provider>

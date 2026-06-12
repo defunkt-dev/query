@@ -21,14 +21,21 @@
 // The Step 4 block asserts the dehydrate flow on top of that: a route handler's
 // prefetched client renders data via the cache-read, and serializedGlobals is what
 // ships the dehydrated cache into the HTML so it crosses resume (with a control that
-// omits it). It uses a second fixture (ssr-dehydrate.marko) and a small local
-// makeDehydrated helper so the file stays self-contained.
+// omits it). It uses a second fixture (ssr-dehydrate.marko) and the shared
+// makeDehydrated helper (the same one hydrate.test.ts imports).
+//
+// The infinite-query block is the instrumented mirror of the query cache-read test: a
+// prefetched infinite client renders the first page server-side. The register-based
+// resume test exercises this path too, but it runs outside vite so istanbul does not
+// count it; this test covers the infinite-query cache-read on the counted path.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { QueryClient, dehydrate, hydrate } from "@tanstack/query-core";
+import { makeDehydrated } from "./helpers";
 
 import SsrQuery from "./fixtures/ssr-query.marko";
 import SsrDehydrate from "./fixtures/ssr-dehydrate.marko";
+import SsrInfinite from "./fixtures/ssr-resume-infinite.marko";
 
 async function renderToString(
   template: any,
@@ -45,15 +52,6 @@ async function renderToString(
 function cell(html: string, id: string): string | null {
   const m = html.match(new RegExp(`data-testid=["']?${id}["']?>([^<]*)`));
   return m ? m[1] : null;
-}
-
-// Prefetch queryKey ["todos"] into a fresh client and dehydrate it -- the data a route
-// handler would compute on the server. Local so this file needs no helpers import.
-async function makeDehydrated(data: unknown) {
-  const c = new QueryClient();
-  c.mount();
-  await c.prefetchQuery({ queryKey: ["todos"], queryFn: async () => data });
-  return { client: c, dehydrated: dehydrate(c) };
 }
 
 describe("SSR server render (GREEN, post Step 3)", () => {
@@ -85,6 +83,33 @@ describe("SSR server render (GREEN, post Step 3)", () => {
     expect(cell(html, "status")).toBe("success");
     expect(cell(html, "data")).toBe(JSON.stringify(["a", "b"]));
     expect(cell(html, "isPending")).toBe("false");
+
+    client.unmount();
+  });
+});
+
+describe("infinite-query SSR server render (cache-read)", () => {
+  it("renders the prefetched first page from a client on $global, not pending", async () => {
+    // Reuses the resume fixture (provider + infinite-query); on the server its
+    // fetchNextPage button is absent and the cache-read seeds the first page. This is
+    // the instrumented mirror of the query cache-read test above, so the infinite-query
+    // cache-read is exercised on the counted path (the register resume test is not).
+    const client = new QueryClient();
+    client.mount();
+    await client.prefetchInfiniteQuery({
+      queryKey: ["pages"],
+      queryFn: async ({ pageParam }: { pageParam: number }) => ["page-" + pageParam],
+      initialPageParam: 0,
+      getNextPageParam: (_last: unknown, all: unknown[]) => all.length,
+    });
+
+    const html = await renderToString(SsrInfinite, {
+      $global: { __tanstack_queryClient: client },
+    });
+
+    expect(cell(html, "status")).toBe("success");
+    expect(html).toContain("page-0");
+    expect(cell(html, "hasNext")).toBe("true");
 
     client.unmount();
   });

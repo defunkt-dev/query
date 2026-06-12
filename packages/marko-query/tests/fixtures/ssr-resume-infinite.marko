@@ -1,0 +1,15 @@
+<query-client-provider>
+  <infinite-query/result options=() => ({
+    queryKey: ["pages"],
+    queryFn: async ({ pageParam }) => ["SENTINEL-" + pageParam],
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => allPages.length,
+    staleTime: Infinity,
+  })/>
+  <div data-testid="status">${result.status}</div>
+  <div data-testid="pages">${JSON.stringify(result.data?.pages ?? null)}</div>
+  <div data-testid="hasNext">${String(result.hasNextPage)}</div>
+  <if=result.fetchNextPage>
+    <button data-testid="next" onClick() { result.fetchNextPage() }>next</button>
+  </if>
+</query-client-provider>

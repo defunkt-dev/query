@@ -1,23 +1,62 @@
 // Ported (trimmed) from Marko's own runtime-tags test harness:
 //   runtime-tags/src/__tests__/utils/create-browser.ts
 //
-// Wraps jsdom-context-require's createBrowser with the exact scheduler
-// polyfills Marko needs (the same rAF + MessageChannel polyfills as
-// tests/setup.ts) and a stream() helper that writes server-rendered HTML
-// chunks into the jsdom document (handling the %%FLUSH%% streaming markers).
+// Wraps jsdom-context-require's createBrowser with the exact scheduler polyfills Marko needs
+// (the same rAF + MessageChannel polyfills as tests/setup.ts) and a stream() helper that writes
+// server-rendered HTML chunks into the jsdom document (handling the %%FLUSH%% streaming markers).
 //
-// The async-ordering machinery (__RESOLVE_STATE__) from the original is
-// dropped — the Tier 2a counter fixture is synchronous and does not need it.
+// The async-ordering machinery (__RESOLVE_STATE__) from the original is dropped -- the fixtures
+// here drive their own flushing.
+
+import { createRequire } from "node:module";
+import { join } from "node:path";
 
 import { type DOMWindow, VirtualConsole } from "jsdom";
 import { createBrowser } from "jsdom-context-require";
 
+// --- module resolution fix -------------------------------------------------------------------
+// jsdom-context-require's bundled resolver (dist/resolve) resolves bare packages with
+// resolve.exports under browser conditions. In a pnpm / workspace checkout that picks an entry
+// for packages like @tanstack/query-core that may not be built locally, so resolution returns
+// nothing and the require throws "Cannot find module '@tanstack/query-core'". Route resolution
+// through Node instead -- the algorithm the rest of the toolchain already uses (require/node
+// conditions, real pnpm symlinks) -- with a .ts fallback for the tags' relative qc-bus import,
+// and fall back to the bundled resolver for anything Node cannot resolve (it handles the .marko
+// tag-discovery cases). createBrowser reads resolve_1.resolve at call time, so mutating the
+// module export before the first createBrowser call takes effect.
+const nodeRequire = createRequire(import.meta.url);
+const resolveModule = nodeRequire("jsdom-context-require/dist/resolve") as {
+  resolve: (id: string, from: string, extensions: string[]) => string | undefined;
+};
+const bundledResolve = resolveModule.resolve;
+resolveModule.resolve = (id, from, extensions) => {
+  const localRequire = createRequire(join(from, "__resolver__.js"));
+  try {
+    return localRequire.resolve(id);
+  } catch {
+    /* try the fallbacks below */
+  }
+  if (id[0] === "." && !id.endsWith(".ts")) {
+    try {
+      return localRequire.resolve(id + ".ts");
+    } catch {
+      /* not a .ts file */
+    }
+    try {
+      return localRequire.resolve(join(id, "index.ts"));
+    } catch {
+      /* not a .ts dir */
+    }
+  }
+  return bundledResolve(id, from, extensions);
+};
+// ---------------------------------------------------------------------------------------------
+
 export default function (options: Parameters<typeof createBrowser>[0]) {
-  // Forward the jsdom context's console output AND uncaught errors to the real
-  // console. A bare VirtualConsole swallows them, which hides errors thrown
-  // during resume or inside event handlers. jsdom 27 removed VirtualConsole's
-  // sendTo(), so we attach event listeners instead. ("jsdomError" is where
-  // uncaught in-page errors land.)
+  // Forward the jsdom context's console output AND uncaught errors to the real console. A bare
+  // VirtualConsole swallows them, which hides errors thrown during resume or inside event
+  // handlers. jsdom 27 removed VirtualConsole's sendTo(), so we attach event listeners instead.
+  // ("jsdomError" is where uncaught in-page errors land.)
   const virtualConsole = new VirtualConsole();
   virtualConsole.on("jsdomError", (err: unknown) => {
     // eslint-disable-next-line no-console
