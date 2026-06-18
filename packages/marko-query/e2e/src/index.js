@@ -1,23 +1,63 @@
-// JS server entry. Importing the .marko page from here (rather than ssrLoadModule-ing the
-// .marko directly) is what makes @marko/vite treat it as an entry: the generated server
-// entry runs addAssets, injecting the browser <script> tags so the page resumes on the
-// client. This mirrors @marko/vite's own isomorphic dev-server fixtures.
+// JS server entry. Importing each .marko page from here (rather than ssrLoadModule-ing the
+// .marko directly) is what makes @marko/vite treat it as an entry: the generated server entry
+// runs addAssets, injecting the browser <script> tags so each page resumes on the client. This
+// mirrors @marko/vite's own isomorphic dev-server fixtures.
+//
+// Multi-route dev server for the e2e suite. Each route maps to a page; routes with a prefetch
+// hook run a server-side QueryClient, prefetch, dehydrate to JSON, and hand the page that
+// dehydrated state (plus the live client for the server cache-read) on $global -- the
+// route-handler recipe the adapter documents. Marko 6's render(input) is an async iterable that
+// must be consumed (the render(input, res) form does not drive the stream here and the request
+// hangs, which is what made the webServer time out before).
 
-import page from "./page.marko";
+import { QueryClient, dehydrate } from "@tanstack/query-core";
+
+import queryLive from "./page.marko";
+import queryPrefetch from "./query-prefetch.marko";
+import mutation from "./mutation.marko";
+import infinite from "./infinite.marko";
+import aggregates from "./aggregates.marko";
+import queryClient from "./query-client.marko";
+import invalidate from "./invalidate.marko";
+import errorPage from "./error.marko";
+
+const routes = {
+  "/": { page: queryLive },
+  "/query-prefetch": {
+    page: queryPrefetch,
+    prefetch: (qc) =>
+      qc.prefetchQuery({ queryKey: ["noflash"], queryFn: () => Promise.resolve("server-data") }),
+  },
+  "/mutation": { page: mutation },
+  "/infinite": { page: infinite },
+  "/aggregates": { page: aggregates },
+  "/query-client": { page: queryClient },
+  "/invalidate": { page: invalidate },
+  "/error": { page: errorPage },
+};
 
 export async function handler(req, res, next) {
-  if (req.url === "/") {
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // Marko 6's render(input) is an async iterable that must be consumed. The
-    // render(input, res) form does not drive the stream in this setup, so the response
-    // never ends and the request hangs (which is what made the webServer time out). The
-    // @marko/vite client asset tags are part of these chunks.
-    for await (const chunk of page.render({})) {
-      res.write(chunk);
-    }
-    res.end();
-  } else if (next) {
-    next();
+  const url = (req.url || "/").split("?")[0];
+  const route = routes[url];
+  if (!route) {
+    if (next) next();
+    return;
   }
+
+  const $global = { serializedGlobals: {} };
+  if (route.prefetch) {
+    const qc = new QueryClient();
+    qc.mount();
+    await route.prefetch(qc);
+    $global.__tanstack_dehydrated = dehydrate(qc);
+    $global.serializedGlobals.__tanstack_dehydrated = true;
+    $global.__tanstack_queryClient = qc;
+  }
+
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  for await (const chunk of route.page.render({ $global })) {
+    res.write(chunk);
+  }
+  res.end();
 }

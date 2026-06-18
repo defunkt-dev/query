@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>invalidate</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <query-client/qc />
+    <query/result options=() => ({
+      queryKey: ["counter"],
+      queryFn: () => {
+        const w = globalThis as any;
+        w.__inv_n = (w.__inv_n || 0) + 1;
+        return Promise.resolve("v" + w.__inv_n);
+      },
+    })/>
+    <div data-testid="status">${result.status}</div>
+    <div data-testid="data">${result.data ?? ""}</div>
+    <button data-testid="go" onClick() { qc?.invalidateQueries({ queryKey: ["counter"] }) }>go</button>
+  </query-client-provider>
+</body>
+</html>

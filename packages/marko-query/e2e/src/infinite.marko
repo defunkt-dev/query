@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>infinite</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <infinite-query/inf options=() => ({
+      queryKey: ["feed"],
+      queryFn: ({ pageParam }: any) => Promise.resolve("item-" + pageParam),
+      initialPageParam: 1,
+      getNextPageParam: (_last: any, pages: any[]) => pages.length + 1,
+    })/>
+    <div data-testid="status">${inf.status}</div>
+    <div data-testid="pages">${JSON.stringify(inf.data?.pages ?? null)}</div>
+    <button data-testid="next" onClick() { inf.fetchNextPage?.() }>next</button>
+  </query-client-provider>
+</body>
+</html>

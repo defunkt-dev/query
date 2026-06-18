@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>query-prefetch</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <query/result options=() => ({
+      queryKey: ["noflash"],
+      queryFn: () => {
+        const w = globalThis as any;
+        w.__noflash_client_fetches = (w.__noflash_client_fetches || 0) + 1;
+        return Promise.resolve("client-data");
+      },
+      staleTime: Infinity,
+    })/>
+    <div data-testid="status">${result.status}</div>
+    <div data-testid="data">${result.data ?? ""}</div>
+  </query-client-provider>
+</body>
+</html>

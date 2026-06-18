@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>query-client</title></head>
+<body>
+  <let/resumed = "no">
+  <let/result = "">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <query-client/qc />
+    <div data-testid="has">${String(qc != null)}</div>
+    <div data-testid="result">${result}</div>
+    <button data-testid="go" onClick() { qc?.setQueryData(["x"], 7); result = String(qc?.getQueryData(["x"])); }>go</button>
+  </query-client-provider>
+</body>
+</html>

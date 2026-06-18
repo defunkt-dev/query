@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>error</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <query/result options=() => ({
+      queryKey: ["err"],
+      queryFn: () => Promise.reject(new Error("boom")),
+      retry: false,
+    })/>
+    <div data-testid="status">${result.status}</div>
+    <div data-testid="error">${result.error ? (result.error as any).message : ""}</div>
+  </query-client-provider>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>mutation</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <mutation/mut options=() => ({ mutationFn: (v: any) => Promise.resolve("did:" + v) })/>
+    <div data-testid="status">${mut.status}</div>
+    <div data-testid="data">${mut.data ?? ""}</div>
+    <button data-testid="go" onClick() { mut.mutate("x") }>go</button>
+  </query-client-provider>
+</body>
+</html>
