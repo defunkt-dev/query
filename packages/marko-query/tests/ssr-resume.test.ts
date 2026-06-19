@@ -45,6 +45,7 @@ const infinitePath = join(fixtures, "ssr-resume-infinite.marko");
 const mutationPath = join(fixtures, "ssr-resume-mutation.marko");
 const aggregatePath = join(fixtures, "ssr-resume-aggregate.marko");
 const qcPath = join(fixtures, "query-client-probe.marko");
+const queriesPath = join(fixtures, "ssr-resume-queries.marko");
 
 const baseConfig = { babelConfig: { babelrc: false, configFile: false }, writeVersionComment: false } as const;
 
@@ -256,4 +257,43 @@ it("2b: query-client resumes with the live client for imperative use", async () 
   run();
   await flush();
   expect(result(), "the resumed client is functional: setQueryData/getQueryData round-trips").toBe("7");
+});
+
+it("2b: a queries set resumes live with hydrated data -- no flash, no refetch when fresh", async () => {
+  // The array generalization of the query resume test. Two queries are prefetched and dehydrated;
+  // on resume the cache-read seeds both (success,success, no flash) and staleTime: Infinity means
+  // neither refetches (no SENTINEL). The refetch button (gated on results[0].refetch being a
+  // function) proves the live QueriesObserver attached rather than the inert snapshot; clicking it
+  // drives a real refetch of the first query through the live subscription, leaving the second
+  // untouched.
+  const server = new QueryClient();
+  server.mount();
+  await server.prefetchQuery({ queryKey: ["todos", 1], queryFn: async () => ["alpha-marker"] });
+  await server.prefetchQuery({ queryKey: ["todos", 2], queryFn: async () => ["beta-marker"] });
+  const dehydrated = dehydrate(server);
+  const chunks = await renderChunks(queriesPath, {
+    $global: { __tanstack_queryClient: server, __tanstack_dehydrated: dehydrated, serializedGlobals: { __tanstack_dehydrated: true } },
+  });
+  server.unmount();
+
+  const { document, run } = resumeInBrowser(queriesPath, chunks);
+  await flush();
+  run();
+  await flush();
+
+  const statuses = () => document.querySelector('[data-testid="statuses"]')?.textContent;
+  const data = () => document.querySelector('[data-testid="data"]')?.textContent;
+  const refetchBtn = () => document.querySelector('[data-testid="refetch"]') as HTMLButtonElement | null;
+
+  expect(statuses()).toBe("success,success"); // both seeded by the cache-read and kept live: no flash
+  expect(data()).toContain("alpha-marker"); // the hydrated cache, first query
+  expect(data()).toContain("beta-marker"); // the hydrated cache, second query
+  expect(data()).not.toContain("SENTINEL"); // fresh under staleTime: no refetch
+  expect(refetchBtn(), "refetch button proves a live QueriesObserver, not the inert snapshot").not.toBeNull();
+
+  refetchBtn()!.click();
+  run();
+  await flush();
+  expect(data()).toContain("SENTINEL-1"); // the first query refetched through the live subscription
+  expect(data()).toContain("beta-marker"); // the second is untouched
 });

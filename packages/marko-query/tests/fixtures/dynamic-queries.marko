@@ -1,0 +1,26 @@
+// Test fixture: a queries set whose length changes at runtime, to prove the tag tracks a dynamic
+// query count. Buttons add or remove a key; the queries thunk reads the reactive keys let, so the
+// observer's setQueries path runs on each change.
+export interface Input {
+  initialKeys: unknown[][];
+  queryFn: (key: unknown[]) => Promise<unknown>;
+}
+
+<let/keys = input.initialKeys>
+
+<queries/results options=() => ({
+  queries: keys.map((key) => ({
+    queryKey: key,
+    queryFn: () => input.queryFn(key),
+  })),
+})/>
+
+<div data-testid="count">${(results as any[]).length}</div>
+<div data-testid="statuses">${(results as any[]).map((r) => r.status).join(",")}</div>
+
+<button data-testid="add" onClick() { keys = [...keys, ["extra", keys.length]]; }>
+  add
+</button>
+<button data-testid="remove" onClick() { keys = keys.slice(0, -1); }>
+  remove
+</button>

@@ -1,0 +1,27 @@
+// Test fixture: drives the queries tag from a list of keys, with an optional combine.
+// queryFn is passed in so tests control resolution; it is called inline here (not passed as a
+// runtime prop) which keeps it serialization-safe and mirrors the basic-query fixture.
+export interface Input {
+  keys: unknown[][];
+  queryFn: (key: unknown[]) => Promise<unknown>;
+  combine?: (results: any[]) => any;
+  staleTime?: number;
+}
+
+<queries/results options=() => ({
+  queries: input.keys.map((key) => ({
+    queryKey: key,
+    queryFn: () => input.queryFn(key),
+    staleTime: input.staleTime,
+  })),
+  combine: input.combine,
+})/>
+
+<if=input.combine>
+  <div data-testid="combined">${JSON.stringify(results)}</div>
+</if>
+<else>
+  <div data-testid="count">${(results as any[]).length}</div>
+  <div data-testid="statuses">${(results as any[]).map((r) => r.status).join(",")}</div>
+  <div data-testid="data">${JSON.stringify((results as any[]).map((r) => r.data))}</div>
+</else>

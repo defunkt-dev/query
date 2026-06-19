@@ -42,6 +42,7 @@ import SsrDehydrate from "./fixtures/ssr-dehydrate.marko";
 import SsrInfinite from "./fixtures/ssr-resume-infinite.marko";
 import SsrAggregate from "./fixtures/ssr-aggregate.marko";
 import QcProbe from "./fixtures/query-client-probe.marko";
+import SsrQueries from "./fixtures/ssr-queries.marko";
 
 async function renderToString(
   template: any,
@@ -116,6 +117,32 @@ describe("infinite-query SSR server render (cache-read)", () => {
     expect(cell(html, "status")).toBe("success");
     expect(html).toContain("page-0");
     expect(cell(html, "hasNext")).toBe("true");
+
+    client.unmount();
+  });
+});
+
+describe("queries SSR server render (cache-read)", () => {
+  it("renders the prefetched set from a client on $global, not pending", async () => {
+    // The array generalization of the query cache-read test: a client with several queries
+    // prefetched, placed on the non-serialized $global key, renders each entry's data via the
+    // read-only loop -- no observer constructed and no fetch started on the server.
+    const client = new QueryClient();
+    client.mount();
+    await client.prefetchQuery({ queryKey: ["todos", 1], queryFn: async () => ["a", "b"] });
+    await client.prefetchQuery({ queryKey: ["todos", 2], queryFn: async () => ["c", "d"] });
+
+    const html = await renderToString(SsrQueries, {
+      $global: { __tanstack_queryClient: client },
+    });
+
+    expect(cell(html, "statuses")).toBe("success,success");
+    expect(cell(html, "data")).toBe(
+      JSON.stringify([
+        ["a", "b"],
+        ["c", "d"],
+      ]),
+    );
 
     client.unmount();
   });

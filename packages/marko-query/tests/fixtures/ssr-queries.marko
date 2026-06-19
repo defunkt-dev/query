@@ -1,0 +1,13 @@
+// SSR fixture for the queries cache-read test. queryFns are INLINE on purpose (a function passed
+// as a prop cannot be serialized across resume); they are never called during SSR -- the data
+// comes from a prefetched client on $global via the read-only array cache-read.
+<query-client-provider>
+  <queries/results options=() => ({
+    queries: [
+      { queryKey: ["todos", 1], queryFn: async () => ["inline-1"] },
+      { queryKey: ["todos", 2], queryFn: async () => ["inline-2"] },
+    ],
+  })/>
+  <div data-testid="statuses">${(results as any[]).map((r) => r.status).join(",")}</div>
+  <div data-testid="data">${JSON.stringify((results as any[]).map((r) => r.data))}</div>
+</query-client-provider>

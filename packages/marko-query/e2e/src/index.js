@@ -20,6 +20,7 @@ import aggregates from "./aggregates.marko";
 import queryClient from "./query-client.marko";
 import invalidate from "./invalidate.marko";
 import errorPage from "./error.marko";
+import queries from "./queries.marko";
 
 const routes = {
   "/": { page: queryLive },
@@ -34,6 +35,7 @@ const routes = {
   "/query-client": { page: queryClient },
   "/invalidate": { page: invalidate },
   "/error": { page: errorPage },
+  "/queries": { page: queries },
 };
 
 export async function handler(req, res, next) {

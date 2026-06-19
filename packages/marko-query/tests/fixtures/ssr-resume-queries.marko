@@ -1,0 +1,14 @@
+<query-client-provider>
+  <queries/results options=() => ({
+    queries: [
+      { queryKey: ["todos", 1], queryFn: async () => ["SENTINEL-1"], staleTime: Infinity },
+      { queryKey: ["todos", 2], queryFn: async () => ["SENTINEL-2"], staleTime: Infinity },
+    ],
+  })/>
+  <const/list = (results as any[])/>
+  <div data-testid="statuses">${list.map((r) => r.status).join(",")}</div>
+  <div data-testid="data">${JSON.stringify(list.map((r) => r.data ?? null))}</div>
+  <if=list[0]?.refetch>
+    <button data-testid="refetch" onClick() { list[0].refetch() }>refetch</button>
+  </if>
+</query-client-provider>

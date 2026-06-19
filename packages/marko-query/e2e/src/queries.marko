@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>queries</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <queries/results options=() => ({
+      queries: [
+        { queryKey: ["q", 1], queryFn: () => Promise.resolve("one") },
+        { queryKey: ["q", 2], queryFn: () => Promise.resolve("two") },
+      ],
+    })/>
+    <div data-testid="statuses">${(results as any[]).map((r) => r.status).join(",")}</div>
+    <div data-testid="data">${(results as any[]).map((r) => r.data ?? "").join(",")}</div>
+  </query-client-provider>
+</body>
+</html>

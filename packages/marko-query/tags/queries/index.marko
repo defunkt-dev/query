@@ -1,0 +1,158 @@
+export interface Input {
+  // Matches TanStack's useQueries argument shape: a thunk returning { queries, combine? }.
+  // The thunk is called synchronously in the script below so dynamic query keys are tracked,
+  // exactly like the <query> tag's options thunk.
+  options: () => {
+    queries: Array<import("@tanstack/query-core").QueryObserverOptions>;
+    combine?: (
+      results: Array<import("@tanstack/query-core").QueryObserverResult>,
+    ) => unknown;
+  };
+}
+
+client import { QueriesObserver } from "@tanstack/query-core"
+client import { subscribeClientPublish } from "../qc-bus"
+
+// One pending entry, identical to the <query> tag's pendingResult. The queries tag's value is
+// an ARRAY of these (one per query), or -- when combine is supplied -- whatever combine folds
+// that array into. Functionless, so the array (and a plain combine output) serialize cleanly.
+static const pendingResult = {
+  status: "pending",
+  fetchStatus: "fetching",
+  data: undefined,
+  error: null,
+  isPending: true,
+  isSuccess: false,
+  isError: false,
+  isFetching: true,
+  isLoading: true,
+  isRefetching: false,
+  isLoadingError: false,
+  isRefetchError: false,
+  isFetched: false,
+  isFetchedAfterMount: false,
+  isPaused: false,
+  isPlaceholderData: false,
+  isStale: true,
+  failureCount: 0,
+  failureReason: null,
+  errorUpdateCount: 0,
+  dataUpdatedAt: 0,
+  errorUpdatedAt: 0,
+  refetch: undefined,
+  isEnabled: true,
+};
+
+static const _makeRef = () => ({
+  observer: null as any,
+  unsubscribe: null as (() => void) | null,
+  client: null as any,
+});
+
+// Per-item snapshot for one settled cached query -- the same fields the <query> cache-read
+// builds, just produced per array element.
+static const snapshot = (s: any) => {
+  const hadData = s.dataUpdatedAt > 0;
+  return {
+    ...pendingResult,
+    status: s.status,
+    fetchStatus: s.fetchStatus,
+    data: s.data,
+    error: s.error,
+    isPending: false,
+    isSuccess: s.status === "success",
+    isError: s.status === "error",
+    isFetching: s.fetchStatus === "fetching",
+    isLoading: false,
+    isRefetching: s.status !== "pending" && s.fetchStatus === "fetching",
+    isLoadingError: s.status === "error" && !hadData,
+    isRefetchError: s.status === "error" && hadData,
+    isFetched: true,
+    failureCount: s.fetchFailureCount,
+    failureReason: s.fetchFailureReason,
+    errorUpdateCount: s.errorUpdateCount,
+    dataUpdatedAt: s.dataUpdatedAt,
+    errorUpdatedAt: s.errorUpdatedAt,
+  };
+};
+
+// Read-only server cache-read, the array generalization of the <query> tag's. It runs once and
+// is then resumed (not re-derived). For each query option it reads the current cache state and
+// returns a plain per-item snapshot, defaulting to pending; the whole value is a plain ARRAY,
+// or combine() of it. QueriesObserver is a client import (absent server-side), so this reads
+// cache state through the client's own methods and never constructs an observer or starts a
+// fetch. The client is read from $global as a LOCAL and never returned, so it never enters
+// Marko scope (and so is never serialized).
+<let/queryResult = (() => {
+  const { queries, combine } = input.options();
+  const client = ($global ?? {}).__tanstack_queryClient;
+  const results = queries.map((q) => {
+    if (!client) return pendingResult;
+    const opts = client.defaultQueryOptions(q);
+    const query = client.getQueryCache().get(opts.queryHash);
+    if (!query || query.state.status === "pending") return pendingResult;
+    return snapshot(query.state);
+  });
+  // The cache-read snapshots are deliberately plain subsets of QueryObserverResult, hence the cast.
+  return combine ? combine(results as any) : results;
+})()>
+<let/_ref = _makeRef()>
+
+<let/_pulse = 0>
+
+// Wake on resume: the provider publishes the client after putting it on $global, which bumps
+// _pulse and re-runs the observer script below. On a client mount the client is already present
+// on the first pass, so the bump is a harmless no-op. Same mechanism as the <query> tag.
+<script>
+  const off = subscribeClientPublish(() => {
+    _pulse++;
+  });
+  $signal.onabort = off;
+</script>
+
+<script>
+  // Reading _pulse (via the comma operator) makes it a reactive dependency so a provider publish
+  // re-runs this; its value is unused.
+  const queryClient = (_pulse, ($global ?? {}).__tanstack_queryClient);
+  const ref = _ref;
+  const { queries, combine } = input.options();
+
+  if (queryClient && !ref.observer) {
+    ref.client = queryClient;
+    const defaulted = queries.map((q) => {
+      const opts = queryClient.defaultQueryOptions(q);
+      opts._optimisticResults = "optimistic";
+      return opts;
+    });
+    ref.observer = new QueriesObserver(queryClient, defaulted);
+    // getOptimisticResult returns a TUPLE [rawResult, combineFn, trackFn]; take the raw array.
+    // combine is applied in our own layer (below) rather than handed to the observer, which keeps
+    // the types simple; the only thing skipped is the observer's combine-aware notify batching.
+    const raw = ref.observer.getOptimisticResult(defaulted, undefined)[0];
+    queryResult = combine ? combine(raw) : raw;
+    // The subscribe listener is handed the RAW array, so combine must be re-applied every update,
+    // not just here, or the combined value would freeze after the first paint.
+    ref.unsubscribe = ref.observer.subscribe((results: any) => {
+      queryResult = combine ? combine(results) : results;
+    });
+  } else if (ref.observer && queryClient && queryClient === ref.client) {
+    const defaulted = queries.map((q) => {
+      const opts = queryClient.defaultQueryOptions(q);
+      opts._optimisticResults = "optimistic";
+      return opts;
+    });
+    ref.observer.setQueries(defaulted);
+    const raw = ref.observer.getOptimisticResult(defaulted, undefined)[0];
+    queryResult = combine ? combine(raw) : raw;
+    ref.unsubscribe = ref.observer.subscribe((results: any) => {
+      queryResult = combine ? combine(results) : results;
+    });
+  }
+
+  $signal.onabort = () => {
+    ref.unsubscribe?.();
+    ref.unsubscribe = null;
+  };
+</script>
+
+<return=queryResult/>
