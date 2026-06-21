@@ -43,6 +43,7 @@ import SsrInfinite from "./fixtures/ssr-resume-infinite.marko";
 import SsrAggregate from "./fixtures/ssr-aggregate.marko";
 import QcProbe from "./fixtures/query-client-probe.marko";
 import SsrQueries from "./fixtures/ssr-queries.marko";
+import DevtoolsTag from "../tags/query-devtools/index.marko";
 
 async function renderToString(
   template: any,
@@ -239,5 +240,17 @@ describe("query-client SSR (no client in scope)", () => {
     const html = await renderToString(QcProbe, { $global: { __tanstack_queryClient: client } });
     expect(cell(html, "has")).toBe("false");
     client.unmount();
+  });
+});
+
+describe("devtools SSR (renders an empty container, no crash)", () => {
+  it("renders only its container on the server and never serializes anything", async () => {
+    // onMount (which creates/mounts the panel and reads the client) never runs on the server, and
+    // the instance lives in a non-reactive holder, so the server output is just the empty
+    // container and a server render cannot crash serializing it. (In a production build the dev
+    // gate strips the whole tag, so it renders nothing at all.)
+    const html = await renderToString(DevtoolsTag, {});
+    expect(typeof html).toBe("string");
+    expect(html).toContain("tsqd-parent-container");
   });
 });

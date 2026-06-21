@@ -18,7 +18,8 @@
     "clean": "premove ./dist ./coverage",
     "test:lib": "vitest",
     "test:lib:dev": "pnpm run test:lib --watch",
-    "test:build": "publint --strict && attw --pack"
+    "test:build": "publint --strict && attw --pack",
+    "test:e2e": "pnpm --filter @tanstack/query-devtools build && playwright test --config e2e/playwright.config.ts"
   },
   "type": "module",
   "exports": {
@@ -36,7 +37,8 @@
     "marko.json"
   ],
   "dependencies": {
-    "@tanstack/query-core": "workspace:*"
+    "@tanstack/query-core": "workspace:*",
+    "@tanstack/query-devtools": "workspace:*"
   },
   "devDependencies": {
     "@marko/compiler": "^5.39.63",

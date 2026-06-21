@@ -21,6 +21,7 @@ import queryClient from "./query-client.marko";
 import invalidate from "./invalidate.marko";
 import errorPage from "./error.marko";
 import queries from "./queries.marko";
+import devtools from "./devtools.marko";
 
 const routes = {
   "/": { page: queryLive },
@@ -36,6 +37,7 @@ const routes = {
   "/invalidate": { page: invalidate },
   "/error": { page: errorPage },
   "/queries": { page: queries },
+  "/devtools": { page: devtools },
 };
 
 export async function handler(req, res, next) {

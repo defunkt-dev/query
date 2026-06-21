@@ -1,0 +1,13 @@
+// Test fixture: the devtools inside a toggleable <if>. Flipping show to false removes the tag the way
+// an app would (conditional rendering / navigation), which is a reactive change -- the only thing that
+// flushes a <script>'s queued teardown. The client is supplied on $global (no client= prop) so the tag
+// reads nothing reactive and runs exactly once, matching how it is used under <query-client-provider>.
+<let/show = true>
+
+<button data-testid="hide-devtools" onClick() { show = false; }>
+  hide
+</button>
+
+<if=show>
+  <query-devtools/>
+</if>

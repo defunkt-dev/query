@@ -2564,6 +2564,9 @@ importers:
       '@tanstack/query-core':
         specifier: workspace:*
         version: link:../query-core
+      '@tanstack/query-devtools':
+        specifier: workspace:*
+        version: link:../query-devtools
     devDependencies:
       '@marko/compiler':
         specifier: ^5.39.63

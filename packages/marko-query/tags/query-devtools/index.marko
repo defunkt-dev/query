@@ -1,0 +1,113 @@
+export interface Input {
+  // Optional explicit client; otherwise the active client on $global is used (found via the bus).
+  client?: import("@tanstack/query-core").QueryClient;
+  initialIsOpen?: boolean;
+  buttonPosition?: import("@tanstack/query-devtools").DevtoolsButtonPosition;
+  position?: import("@tanstack/query-devtools").DevtoolsPosition;
+  errorTypes?: Array<import("@tanstack/query-devtools").DevtoolsErrorType>;
+  styleNonce?: string;
+  shadowDOMTarget?: ShadowRoot;
+  hideDisabledQueries?: boolean;
+}
+
+client import { onlineManager } from "@tanstack/query-core"
+client import { subscribeClientPublish } from "../qc-bus"
+
+// A thin Marko wrapper over TanStack's framework-agnostic devtools panel (@tanstack/query-devtools,
+// built in Solid). Drop it inside <query-client-provider>; it finds the active client on $global
+// (with an optional client= override) and mounts the panel into its own container.
+//
+// HOW TEARDOWN ACTUALLY WORKS HERE (this drove several earlier wrong versions, so it is written out):
+// A <script>'s $signal.onabort is a queued effect. When the tag's scope is destroyed, Marko pushes
+// the abort onto a pending queue but does NOT run it immediately -- the queue is only drained when a
+// reactive change drives a render pass (an <if> toggling, navigation, a reactive value updating).
+// In a real app a component is always removed by exactly such a change, so the same pass that removes
+// this tag also flushes its teardown and the panel unmounts. (This is verified against the Marko
+// runtime: scope destroy calls queueEffect for the abort, and only the scheduler's run -- triggered
+// by a reactive change -- executes it. A test that calls a bare cleanup()/destroy() with no reactive
+// change never flushes it, which is a test-harness artifact, not how production unmounts.)
+//
+// Because of that, this tag does NOT need to be a reactive effect to tear down. It is a single script
+// that runs ONCE: input.client is undefined in the common case and $global is not reactive, so there
+// are no re-runs and therefore no mount/unmount churn. Resume (the client arriving after this leaf
+// has already rendered) is handled imperatively through the bus -- subscribeClientPublish calls
+// mountInto directly when the provider publishes, with no reactive re-run. mountInto is idempotent
+// (guarded by the `mounted` flag) so repeated publishes never remount. The onabort still fires on a
+// genuine reactive unmount, which is the only kind that happens in an app.
+//
+// State is plain closure variables in the script body (panel/mounted/disposed); nothing enters
+// serialized scope, so the tag has no SSR-serializable state. (Earlier versions kept these in a <let>
+// holder mutated through a local alias; that was only ever needed to dodge Babel's
+// optionalChainingAssign when writing a <let>'s property inside the dynamic import's .then. Plain
+// closure variables sidestep that entirely -- a closure assignment is just an assignment.)
+//
+// Dev-only: the script early-returns unless import.meta.env.DEV, which the bundler replaces with
+// false in production, so the dynamic import of the panel is unreachable and dropped from the
+// production bundle -- the same gating the React and Svelte devtools use. (Verify the prod build
+// strips the @tanstack/query-devtools chunk.) The empty container still renders in prod; it is inert
+// markup. The script never runs on the server, and a server render only emits the empty container,
+// so SSR cannot crash here.
+//
+// Resume ordering: on resume Marko runs leaf effects before the provider's onMount, so the client may
+// not be on $global on this leaf's first pass. The first mountInto finds no client and returns; the
+// bus subscription then mounts as soon as the provider publishes. On a fresh client-side mount the
+// provider's onMount has already put the client on $global, so the first mountInto mounts immediately.
+//
+// Note: reactive forwarding of buttonPosition/position/initialIsOpen/errorTypes to a live panel (the
+// panel's setButtonPosition/... setters) is intentionally not wired -- the constructor captures the
+// initial values, and runtime changes are not forwarded. It can be added by calling the panel setters
+// off the panel handle in a small reactive block that reads those inputs.
+
+<div/containerEl class="tsqd-parent-container"/>
+
+<script>
+  if (!import.meta.env.DEV) return;
+
+  let panel: import("@tanstack/query-devtools").TanstackQueryDevtools | null = null;
+  let mounted = false;
+  let disposed = false;
+
+  const mountInto = () => {
+    // Idempotent: a repeat publish (or a first publish after a fresh mount already handled it) is a
+    // no-op; once torn down, disposed stays true so a late publish cannot resurrect the panel.
+    if (mounted || disposed) return;
+    const client = input.client ?? ($global ?? {}).__tanstack_queryClient;
+    if (!client) return;
+    // Claim the mount synchronously so a publish landing during the async import cannot start a second.
+    mounted = true;
+    import("@tanstack/query-devtools").then((mod) => {
+      // If we were torn down while the import was in flight, bail instead of mounting into a detached
+      // node (and leaking the panel).
+      if (disposed) return;
+      panel = new mod.TanstackQueryDevtools({
+        client,
+        queryFlavor: "Marko Query",
+        version: "5",
+        onlineManager,
+        buttonPosition: input.buttonPosition,
+        position: input.position,
+        initialIsOpen: input.initialIsOpen,
+        errorTypes: input.errorTypes,
+        styleNonce: input.styleNonce,
+        shadowDOMTarget: input.shadowDOMTarget,
+        hideDisabledQueries: input.hideDisabledQueries,
+      });
+      panel.mount(containerEl());
+    });
+  };
+
+  // Mount now if the client is already available, and wake on the provider's publish for resume.
+  mountInto();
+  const off = subscribeClientPublish(mountInto);
+
+  // Fires on a genuine reactive unmount (the flush described above). Stop listening to the bus and
+  // tear the panel down.
+  $signal.onabort = () => {
+    disposed = true;
+    off();
+    if (panel) {
+      panel.unmount();
+      panel = null;
+    }
+  };
+</script>

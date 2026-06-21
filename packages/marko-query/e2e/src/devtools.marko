@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"/><title>devtools</title></head>
+<body>
+  <let/resumed = "no">
+  <lifecycle onMount() { resumed = "yes"; }/>
+  <div data-testid="resumed">${resumed}</div>
+  <query-client-provider>
+    <query/result options=() => ({
+      queryKey: ["dt"],
+      queryFn: () => Promise.resolve("dt-data"),
+    })/>
+    <div data-testid="status">${result.status}</div>
+    <div data-testid="data">${result.data ?? ""}</div>
+    <query-devtools/>
+  </query-client-provider>
+</body>
+</html>
